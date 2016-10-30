@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -22,6 +22,11 @@ class Pecl extends GeoIp
 {
     const ID = 'geoip_pecl';
     const TITLE = 'GeoIP (PECL)';
+
+    /**
+     * For tests.
+     */
+    public static $forceDisable = false;
 
     /**
      * Uses the GeoIP PECL module to get a visitor's location based on their IP address.
@@ -85,7 +90,7 @@ class Pecl extends GeoIp
         // get isp data if the isp database is available
         if (self::isISPDatabaseAvailable()) {
             $isp = @geoip_isp_by_name($ip);
-            if ($ip !== false) {
+            if ($isp !== false) {
                 $result[self::ISP_KEY] = utf8_encode($isp);
             }
         }
@@ -105,7 +110,7 @@ class Pecl extends GeoIp
      */
     public function isAvailable()
     {
-        return function_exists('geoip_db_avail');
+        return !self::$forceDisable && function_exists('geoip_db_avail');
     }
 
     /**
@@ -212,11 +217,9 @@ class Pecl extends GeoIp
     {
         $desc = Piwik::translate('UserCountry_GeoIpLocationProviderDesc_Pecl1') . '<br/><br/>'
             . Piwik::translate('UserCountry_GeoIpLocationProviderDesc_Pecl2');
-        $installDocs = '<em>'
-            . '<a target="_blank" href="http://piwik.org/faq/how-to/#faq_164">'
+        $installDocs = '<a rel="noreferrer"  target="_blank" href="http://piwik.org/faq/how-to/#faq_164">'
             . Piwik::translate('UserCountry_HowToInstallGeoIpPecl')
-            . '</a>'
-            . '</em>';
+            . '</a>';
 
         $extraMessage = false;
         if ($this->isAvailable()) {
@@ -244,10 +247,10 @@ class Pecl extends GeoIp
                 $availableDatabaseTypes[] = Piwik::translate('UserCountry_Organization');
             }
 
-            $extraMessage .= '<br/><br/>' . Piwik::translate('UserCountry_GeoIPImplHasAccessTo') . ':&nbsp;<strong><em>'
-                . implode(', ', $availableDatabaseTypes) . '</em></strong>.';
+            $extraMessage .= '<br/><br/>' . Piwik::translate('UserCountry_GeoIPImplHasAccessTo') . ':&nbsp;<strong>'
+                . implode(', ', $availableDatabaseTypes) . '</strong>.';
 
-            $extraMessage = '<strong><em>' . Piwik::translate('General_Note') . ':&nbsp;</em></strong>' . $extraMessage;
+            $extraMessage = '<strong>' . Piwik::translate('General_Note') . ':&nbsp;</strong>' . $extraMessage;
         }
 
         return array('id'            => self::ID,

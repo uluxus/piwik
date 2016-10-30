@@ -1,5 +1,5 @@
 /*!
- * Piwik - Web Analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -54,9 +54,9 @@ var broadcast = {
         }
         broadcast._isInit = true;
 
-        // Initialize history plugin.
-        // The callback is called at once by present location.hash
-        $.history.init(broadcast.pageload, {unescape: true});
+        angular.element(document).injector().invoke(function (historyService) {
+            historyService.init();
+        });
 
         if(noLoadingMessage != true) {
             piwikHelper.showAjaxLoading();
@@ -151,7 +151,7 @@ var broadcast = {
                 var handlerName = popoverParamParts[0];
                 popoverParamParts.shift();
                 var param = popoverParamParts.join(':');
-                if (typeof broadcast.popoverHandlers[handlerName] != 'undefined') {
+                if (typeof broadcast.popoverHandlers[handlerName] != 'undefined' && !broadcast.isLoginPage()) {
                     broadcast.popoverHandlers[handlerName](param);
                 }
             }
@@ -159,12 +159,20 @@ var broadcast = {
         } else {
             // start page
             Piwik_Popover.close();
-
-            $('#content:not(.admin)').empty();
+            $('.pageWrap #content:not(.admin)').empty();
         }
     },
 
     /**
+     * Returns if the current page is the login page
+     * @return {boolean}
+     */
+    isLoginPage: function() {
+        return !!$('body#loginPage').length;
+    },
+
+    /**
+     * ONLY USED BY OVERLAY
      * propagateAjax -- update hash values then make ajax calls.
      *    example :
      *       1) <a href="javascript:broadcast.propagateAjax('module=Referrers&action=getKeywords')">View keywords report</a>
@@ -197,7 +205,7 @@ var broadcast = {
         // if the module is not 'Goals', we specifically unset the 'idGoal' parameter
         // this is to ensure that the URLs are clean (and that clicks on graphs work as expected - they are broken with the extra parameter)
         var action = broadcast.getParamValue('action', currentHashStr);
-        if (action != 'goalReport' && action != 'ecommerceReport') {
+        if (action != 'goalReport' && action != 'ecommerceReport' && action != 'products' && action != 'sales') {
             currentHashStr = broadcast.updateParamValue('idGoal=', currentHashStr);
         }
         // unset idDashboard if use doesn't display a dashboard
@@ -206,16 +214,63 @@ var broadcast = {
             currentHashStr = broadcast.updateParamValue('idDashboard=', currentHashStr);
         }
 
+        if (module != 'CustomDimensions') {
+            currentHashStr = broadcast.updateParamValue('idDimension=', currentHashStr);
+        }
+
         if (disableHistory) {
-            var newLocation = window.location.href.split('#')[0] + '#' + currentHashStr;
+            var newLocation = window.location.href.split('#')[0] + '#?' + currentHashStr;
             // window.location.replace changes the current url without pushing it on the browser's history stack
             window.location.replace(newLocation);
         }
         else {
             // Let history know about this new Hash and load it.
             broadcast.forceReload = true;
-            $.history.load(currentHashStr);
+            angular.element(document).injector().invoke(function (historyService) {
+                historyService.load(currentHashStr);
+            });
         }
+    },
+
+    /**
+     * propagateAjax -- update hash values then make ajax calls.
+     *    example :
+     *       1) <a href="javascript:broadcast.propagateAjax('module=Referrers&action=getKeywords')">View keywords report</a>
+     *       2) Main menu li also goes through this function.
+     *
+     * Will propagate your new value into the current hash string and make ajax calls.
+     *
+     * NOTE: this method will only make ajax call and replacing main content.
+     *
+     * @param {string} ajaxUrl  querystring with parameters to be updated
+     * @param {boolean} [disableHistory]  the hash change won't be available in the browser history
+     * @return {void}
+     */
+    buildReportingUrl: function (ajaxUrl, disableHistory) {
+
+        // available in global scope
+        var currentHashStr = broadcast.getHash();
+
+        ajaxUrl = ajaxUrl.replace(/^\?|&#/, '');
+
+        var params_vals = ajaxUrl.split("&");
+        for (var i = 0; i < params_vals.length; i++) {
+            currentHashStr = broadcast.updateParamValue(params_vals[i], currentHashStr);
+        }
+
+        // if the module is not 'Goals', we specifically unset the 'idGoal' parameter
+        // this is to ensure that the URLs are clean (and that clicks on graphs work as expected - they are broken with the extra parameter)
+        var action = broadcast.getParamValue('action', currentHashStr);
+        if (action != 'goalReport' && action != 'ecommerceReport' && action != 'products' && action != 'sales') {
+            currentHashStr = broadcast.updateParamValue('idGoal=', currentHashStr);
+        }
+        // unset idDashboard if use doesn't display a dashboard
+        var module = broadcast.getParamValue('module', currentHashStr);
+        if (module != 'Dashboard') {
+            currentHashStr = broadcast.updateParamValue('idDashboard=', currentHashStr);
+        }
+
+        return '#' + currentHashStr;
     },
 
     /**
@@ -233,9 +288,10 @@ var broadcast = {
      *
      * @param {string} str  url with parameters to be updated
      * @param {boolean} [showAjaxLoading] whether to show the ajax loading gif or not.
+     * @param {string} strHash additional parameters that should be updated on the hash
      * @return {void}
      */
-    propagateNewPage: function (str, showAjaxLoading) {
+    propagateNewPage: function (str, showAjaxLoading, strHash) {
         // abort all existing ajax requests
         globalAjaxQueue.abort();
 
@@ -256,6 +312,22 @@ var broadcast = {
 
             if (currentHashStr.length != 0) {
                 currentHashStr = broadcast.updateParamValue(params_vals[i], currentHashStr);
+            }
+        }
+
+        var updatedUrl = new RegExp('&updated=([0-9]+)');
+        var updatedCounter = updatedUrl.exec(currentSearchStr);
+        if (!updatedCounter) {
+            currentSearchStr += '&updated=1';
+        } else {
+            updatedCounter = 1 + parseInt(updatedCounter[1]);
+            currentSearchStr = currentSearchStr.replace(new RegExp('(&updated=[0-9]+)'), '&updated=' + updatedCounter);
+        }
+
+        if (strHash && currentHashStr.length != 0) {
+            var params_hash_vals = strHash.split("&");
+            for (var i = 0; i < params_hash_vals.length; i++) {
+                currentHashStr = broadcast.updateParamValue(params_hash_vals[i], currentHashStr);
             }
         }
 
@@ -310,7 +382,7 @@ var broadcast = {
             valFromUrl = getQuotedRegex(valFromUrl);
             var regToBeReplace = new RegExp(paramName + '=' + valFromUrl, 'ig');
             if (newParamValue == '') {
-                // if new value is empty remove leading &, aswell
+                // if new value is empty remove leading &, as well
                 regToBeReplace = new RegExp('[\&]?' + paramName + '=' + valFromUrl, 'ig');
             }
             urlStr = urlStr.replace(regToBeReplace, newParamValue);
@@ -324,24 +396,24 @@ var broadcast = {
     /**
      * Loads a popover by adding a 'popover' query parameter to the current URL and
      * indirectly executing the popover handler.
-     * 
+     *
      * This function should be called to open popovers that can be opened by URL alone.
      * That is, if you want users to be able to copy-paste the URL displayed when a popover
      * is open into a new browser window/tab and have the same popover open, you should
      * call this function.
-     * 
+     *
      * In order for this function to open a popover, there must be a popover handler
      * associated with handlerName. To associate one, call broadcast.addPopoverHandler.
-     * 
+     *
      * @param {String} handlerName The name of the popover handler.
-     * @param {String} value The String value that should be passed to the popover 
+     * @param {String} value The String value that should be passed to the popover
      *                       handler.
      */
     propagateNewPopoverParameter: function (handlerName, value) {
         // init broadcast if not already done (it is required to make popovers work in widgetize mode)
-        broadcast.init(true);
+        //broadcast.init(true);
 
-        var hash = broadcast.getHashFromUrl(window.location.href);
+        var $location = angular.element(document).injector().get('$location');
 
         var popover = '';
         if (handlerName) {
@@ -355,29 +427,21 @@ var broadcast = {
         }
 
         if ('' == value || 'undefined' == typeof value) {
-            var newHash = hash.replace(/(&?popover=.*)/, '');
-        } else if (broadcast.getParamValue('popover', hash)) {
-            var newHash = broadcast.updateParamValue('popover='+popover, hash);
-        } else if (hash && hash != '#') {
-            var newHash = hash + '&popover=' + popover
+            $location.search('popover', '');
         } else {
-            var newHash = '#popover='+popover;
+            $location.search('popover', popover);
         }
 
-        // never use an empty hash, as that might reload the page
-        if ('' == newHash) {
-            newHash = '#';
-        }
-
-        broadcast.forceReload = false;
-        $.history.load(newHash);
+        setTimeout(function () {
+            angular.element(document).injector().get('$rootScope').$apply();
+        }, 1);
     },
 
     /**
      * Adds a handler for the 'popover' query parameter.
-     * 
+     *
      * @see broadcast#propagateNewPopoverParameter
-     * 
+     *
      * @param {String} handlerName The handler name, eg, 'visitorProfile'. Should identify
      *                             the popover that the callback will open up.
      * @param {Function} callback This function should open the popover. It should take
@@ -396,12 +460,11 @@ var broadcast = {
      * @return {Boolean}
      */
     loadAjaxContent: function (urlAjax) {
-        if (typeof piwikMenu !== 'undefined') {
-            piwikMenu.activateMenu(
-                broadcast.getParamValue('module', urlAjax),
-                broadcast.getParamValue('action', urlAjax),
-                broadcast.getParamValue('idGoal', urlAjax) || broadcast.getParamValue('idDashboard', urlAjax)
-            );
+        if(broadcast.getParamValue('module', urlAjax) == 'API') {
+            broadcast.lastUrlRequested = null;
+            $('#content').html("Loading content from the API and displaying it within Piwik is not allowed.");
+            piwikHelper.hideAjaxLoading();
+            return false;
         }
 
         piwikHelper.hideAjaxError('loadingError');
@@ -411,7 +474,24 @@ var broadcast = {
 
         urlAjax = urlAjax.match(/^\?/) ? urlAjax : "?" + urlAjax;
         broadcast.lastUrlRequested = urlAjax;
-        function sectionLoaded(content) {
+
+        function sectionLoaded(content, status, request) {
+            if (request) {
+                var responseHeader = request.getResponseHeader('Content-Type');
+                if (responseHeader && 0 <= responseHeader.toLowerCase().indexOf('json')) {
+                    var message = 'JSON cannot be displayed for';
+                    if (this.getParams && this.getParams['module']) {
+                        message += ' module=' +  this.getParams['module'];
+                    }
+                    if (this.getParams && this.getParams['action']) {
+                        message += ' action=' +  this.getParams['action'];
+                    }
+                    $('#content').text(message);
+                    piwikHelper.hideAjaxLoading();
+                    return;
+                }
+            }
+
             // if content is whole HTML document, do not show it, otherwise recursive page load could occur
             var htmlDocType = '<!DOCTYPE';
             if (content.substring(0, htmlDocType.length) == htmlDocType) {
@@ -428,6 +508,8 @@ var broadcast = {
                 $(broadcast).trigger('locationChangeSuccess', {element: $('#content'), content: content});
                 piwikHelper.hideAjaxLoading();
                 broadcast.lastUrlRequested = null;
+
+                piwikHelper.compileAngularComponents('#content');
             }
 
             initTopControls();
@@ -435,6 +517,9 @@ var broadcast = {
 
         var ajax = new ajaxHelper();
         ajax.setUrl(urlAjax);
+        ajax._getDefaultPostParams = function () {
+            return {};
+        };
         ajax.setErrorCallback(broadcast.customAjaxHandleError);
         ajax.setCallback(sectionLoaded);
         ajax.setFormat('html');
@@ -452,14 +537,14 @@ var broadcast = {
     customAjaxHandleError: function (deferred, status) {
         broadcast.lastUrlRequested = null;
 
+        piwikHelper.hideAjaxLoading();
+
         // do not display error message if request was aborted
         if(status == 'abort') {
             return;
         }
+
         $('#loadingError').show();
-        setTimeout( function(){
-            $('#loadingError').fadeOut('slow');
-        }, 2000);
     },
 
     /**
@@ -549,7 +634,6 @@ var broadcast = {
         return this.extractKeyValuePairsFromQueryString(searchString);
     },
 
-
     /**
      * help to get param value for any given url string with provided param name
      * if no url is provided, it will get param from current address.
@@ -581,7 +665,6 @@ var broadcast = {
 
         return broadcast.getParamValue(param, hashStr);
     },
-
 
     /**
      * return value for the requested param, will return the first match.

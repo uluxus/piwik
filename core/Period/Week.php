@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,14 +8,14 @@
  */
 namespace Piwik\Period;
 
-
 use Piwik\Period;
-use Piwik\Piwik;
 
 /**
  */
 class Week extends Period
 {
+    const PERIOD_ID = 2;
+
     protected $label = 'week';
 
     /**
@@ -25,13 +25,7 @@ class Week extends Period
      */
     public function getLocalizedShortString()
     {
-        //"30 Dec - 6 Jan 09"
-        $dateStart = $this->getDateStart();
-        $dateEnd = $this->getDateEnd();
-
-        $string = Piwik::translate('CoreHome_ShortWeekFormat');
-        $string = self::getTranslatedRange($string, $dateStart, $dateEnd);
-        return $string;
+        return $this->getTranslatedRange($this->getRangeFormat(true));
     }
 
     /**
@@ -41,25 +35,8 @@ class Week extends Period
      */
     public function getLocalizedLongString()
     {
-        $format = Piwik::translate('CoreHome_LongWeekFormat');
-        $string = self::getTranslatedRange($format, $this->getDateStart(), $this->getDateEnd());
-        return Piwik::translate('CoreHome_PeriodWeek') . " " . $string;
-    }
-
-    /**
-     * @param string $format
-     * @param \Piwik\Date $dateStart
-     * @param \Piwik\Date $dateEnd
-     *
-     * @return mixed
-     */
-    static protected function getTranslatedRange($format, $dateStart, $dateEnd)
-    {
-        $string = str_replace('From%', '%', $format);
-        $string = $dateStart->getLocalized($string);
-        $string = str_replace('To%', '%', $string);
-        $string = $dateEnd->getLocalized($string);
-        return $string;
+        $string = $this->getTranslatedRange($this->getRangeFormat());
+        return $this->translator->translate('Intl_PeriodWeek') . " " . $string;
     }
 
     /**
@@ -69,10 +46,11 @@ class Week extends Period
      */
     public function getPrettyString()
     {
-        $out = Piwik::translate('General_DateRangeFromTo',
-            array($this->getDateStart()->toString(),
-                  $this->getDateEnd()->toString())
-        );
+        $dateStart = $this->getDateStart();
+        $dateEnd   = $this->getDateEnd();
+
+        $out = $this->translator->translate('General_DateRangeFromTo', array($dateStart->toString(), $dateEnd->toString()));
+
         return $out;
     }
 
@@ -84,6 +62,7 @@ class Week extends Period
         if ($this->subperiodsProcessed) {
             return;
         }
+
         parent::generate();
         $date = $this->date;
 
@@ -98,5 +77,15 @@ class Week extends Period
             $this->addSubperiod(new Day($currentDay));
             $currentDay = $currentDay->addDay(1);
         }
+    }
+
+    public function getImmediateChildPeriodLabel()
+    {
+        return 'day';
+    }
+
+    public function getParentPeriodLabel()
+    {
+        return 'month';
     }
 }

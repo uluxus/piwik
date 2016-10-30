@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -13,27 +13,106 @@ use Piwik\API\Request;
 use Piwik\Common;
 use Piwik\Date;
 use Piwik\FrontController;
-use Piwik\Menu\MenuMain;
 use Piwik\Notification\Manager as NotificationManager;
 use Piwik\Piwik;
+use Piwik\Plugin\Report;
+use Piwik\Widget\Widget;
 use Piwik\Plugins\CoreHome\DataTableRowAction\MultiRowEvolution;
 use Piwik\Plugins\CoreHome\DataTableRowAction\RowEvolution;
 use Piwik\Plugins\CorePluginsAdmin\MarketplaceApiClient;
 use Piwik\Plugins\Dashboard\DashboardManagerControl;
 use Piwik\Plugins\UsersManager\API;
 use Piwik\Site;
+use Piwik\Translation\Translator;
 use Piwik\UpdateCheck;
 use Piwik\Url;
 use Piwik\View;
+use Piwik\ViewDataTable\Manager as ViewDataTableManager;
+use Piwik\Widget\WidgetConfig;
 
-/**
- *
- */
 class Controller extends \Piwik\Plugin\Controller
 {
-    function getDefaultAction()
+    /**
+     * @var Translator
+     */
+    private $translator;
+
+    public function __construct(Translator $translator)
+    {
+        $this->translator = $translator;
+
+        parent::__construct();
+    }
+    
+    public function getDefaultAction()
     {
         return 'redirectToCoreHomeIndex';
+    }
+
+    public function renderReportWidget(Report $report)
+    {
+        Piwik::checkUserHasSomeViewAccess();
+        $this->checkSitePermission();
+
+        $report->checkIsEnabled();
+
+        return $report->render();
+    }
+
+    /**
+     * This is only used for exported widgets
+     * @return string
+     * @throws Exception
+     * @throws \Piwik\NoAccessException
+     */
+    public function renderWidgetContainer()
+    {
+        Piwik::checkUserHasSomeViewAccess();
+        $this->checkSitePermission();
+
+        $view = new View('@CoreHome/widgetContainer');
+        $view->isWidgetized = (bool) Common::getRequestVar('widget', 0, 'int');
+        $view->containerId  = Common::getRequestVar('containerId', null, 'string');
+
+        return $view->render();
+    }
+
+    /**
+     * @param Widget $widget
+     * @return mixed
+     * @throws Exception
+     */
+    public function renderWidget($widget)
+    {
+        Piwik::checkUserHasSomeViewAccess();
+
+        $config = new WidgetConfig();
+        $widget::configure($config);
+
+        $content = $widget->render();
+
+        if ($config->getName() && Common::getRequestVar('showtitle', '', 'string') === '1') {
+            if (strpos($content, '<h2') !== false
+                || strpos($content, ' content-title=') !== false
+                || strpos($content, ' piwik-enriched-headline') !== false
+                || strpos($content, '<h1') !== false ) {
+                // already includes title
+                return $content;
+            }
+
+            if (strpos($content, 'piwik-content-block') === false
+                && strpos($content, 'class="card"') === false
+                && strpos($content, "class='card'") === false
+                && strpos($content, 'class="card-content"') === false
+                && strpos($content, "class='card-content'") === false) {
+                $view = new View('@CoreHome/_singleWidget');
+                $view->title = $config->getName();
+                $view->content = $content;
+                return $view->render();
+            }
+        }
+
+        return $content;
     }
 
     function redirectToCoreHomeIndex()
@@ -48,9 +127,11 @@ class Controller extends \Piwik\Plugin\Controller
         ) {
             $module = 'MultiSites';
         }
+
         if ($defaultReport == Piwik::getLoginPluginName()) {
             $module = Piwik::getLoginPluginName();
         }
+
         $idSite = Common::getRequestVar('idSite', false, 'int');
         parent::redirectToIndex($module, $action, $idSite);
     }
@@ -58,10 +139,15 @@ class Controller extends \Piwik\Plugin\Controller
     public function showInContext()
     {
         $controllerName = Common::getRequestVar('moduleToLoad');
-        $actionName = Common::getRequestVar('actionToLoad', 'index');
+        $actionName     = Common::getRequestVar('actionToLoad', 'index');
+
+        if($controllerName == 'API') {
+            throw new Exception("Showing API requests in context is not supported for security reasons. Please change query parameter 'moduleToLoad'.");
+        }
         if ($actionName == 'showInContext') {
             throw new Exception("Preventing infinite recursion...");
         }
+
         $view = $this->getDefaultIndexView();
         $view->content = FrontController::getInstance()->fetchDispatch($controllerName, $actionName);
         return $view->render();
@@ -77,7 +163,7 @@ class Controller extends \Piwik\Plugin\Controller
     {
         $view = new View('@CoreHome/getDefaultIndexView');
         $this->setGeneralVariablesView($view);
-        $view->menu = MenuMain::getInstance()->getMenu();
+        $view->showMenu = true;
         $view->dashboardSettingsControl = new DashboardManagerControl();
         $view->content = '';
         return $view;
@@ -91,12 +177,16 @@ class Controller extends \Piwik\Plugin\Controller
         ) {
             return;
         }
+
         $websiteId = Common::getRequestVar('idSite', false, 'int');
+
         if ($websiteId) {
+
             $website = new Site($websiteId);
-            $datetimeCreationDate = $website->getCreationDate()->getDatetime();
+            $datetimeCreationDate      = $website->getCreationDate()->getDatetime();
             $creationDateLocalTimezone = Date::factory($datetimeCreationDate, $website->getTimezone())->toString('Y-m-d');
-            $todayLocalTimezone = Date::factory('now', $website->getTimezone())->toString('Y-m-d');
+            $todayLocalTimezone        = Date::factory('now', $website->getTimezone())->toString('Y-m-d');
+
             if ($creationDateLocalTimezone == $todayLocalTimezone) {
                 Piwik::redirectToModule('CoreHome', 'index',
                     array('date'   => 'today',
@@ -182,32 +272,6 @@ class Controller extends \Piwik\Plugin\Controller
     }
 
     /**
-     * Renders and echo's the in-app donate form w/ slider.
-     */
-    public function getDonateForm()
-    {
-        $view = new View('@CoreHome/getDonateForm');
-        if (Common::getRequestVar('widget', false)
-            && Piwik::hasUserSuperUserAccess()
-        ) {
-            $view->footerMessage = Piwik::translate('CoreHome_OnlyForSuperUserAccess');
-        }
-        return $view->render();
-    }
-
-    /**
-     * Renders and echo's HTML that displays the Piwik promo video.
-     */
-    public function getPromoVideo()
-    {
-        $view = new View('@CoreHome/getPromoVideo');
-        $view->shareText = Piwik::translate('CoreHome_SharePiwikShort');
-        $view->shareTextLong = Piwik::translate('CoreHome_SharePiwikLong');
-        $view->promoVideoUrl = 'http://www.youtube.com/watch?v=OslfF_EH81g';
-        return $view->render();
-    }
-
-    /**
      * Redirects the user to a paypal so they can donate to Piwik.
      */
     public function redirectToPaypal()
@@ -224,19 +288,19 @@ class Controller extends \Piwik\Plugin\Controller
 
         $url = "https://www.paypal.com/cgi-bin/webscr?" . Url::getQueryStringFromParameters($parameters);
 
-        header("Location: $url");
+        Url::redirectToUrl($url);
         exit;
     }
 
-    public function getSiteSelector()
+    public function saveViewDataTableParameters()
     {
-        return "<div piwik-siteselector class=\"sites_autocomplete\" switch-site-on-select=\"false\"></div>";
-    }
+        Piwik::checkUserIsNotAnonymous();
+        $this->checkTokenInUrl();
 
-    public function getPeriodSelector()
-    {
-        $view = new View("@CoreHome/_periodSelect");
-        $this->setGeneralVariablesView($view);
-        return $view->render();
+        $reportId   = Common::getRequestVar('report_id', null, 'string');
+        $parameters = (array) Common::getRequestVar('parameters', null, 'json');
+        $login      = Piwik::getCurrentUserLogin();
+
+        ViewDataTableManager::saveViewDataTableParameters($login, $reportId, $parameters);
     }
 }

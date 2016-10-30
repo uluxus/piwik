@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,12 +8,10 @@
  */
 namespace Piwik\Plugins\CoreVisualizations\JqplotDataGenerator;
 
-
 use Piwik\Archive\DataTableFactory;
 use Piwik\Common;
 use Piwik\DataTable;
 use Piwik\DataTable\Row;
-use Piwik\Menu\MenuMain;
 use Piwik\Plugins\CoreVisualizations\JqplotDataGenerator;
 use Piwik\Url;
 
@@ -77,8 +75,7 @@ class Evolution extends JqplotDataGenerator
             $periodLabel = reset($dataTables)->getMetadata(DataTableFactory::TABLE_METADATA_PERIOD_INDEX)->getLabel();
 
             $axisXOnClick = array();
-            $queryStringAsHash = $this->getQueryStringAsHash();
-            foreach ($dataTable->getDataTables() as $idDataTable => $metadataDataTable) {
+            foreach ($dataTable->getDataTables() as $metadataDataTable) {
                 $dateInUrl = $metadataDataTable->getMetadata(DataTableFactory::TABLE_METADATA_PERIOD_INDEX)->getDateStart();
                 $parameters = array(
                     'idSite'  => $idSite,
@@ -86,16 +83,7 @@ class Evolution extends JqplotDataGenerator
                     'date'    => $dateInUrl->toString(),
                     'segment' => \Piwik\API\Request::getRawSegmentFromRequest()
                 );
-                $hash = '';
-                if (!empty($queryStringAsHash)) {
-                    $hash = '#' . Url::getQueryStringFromParameters($queryStringAsHash + $parameters);
-                }
-                $link = 'index.php?' .
-                    Url::getQueryStringFromParameters(array(
-                            'module' => 'CoreHome',
-                            'action' => 'index',
-                        ) + $parameters)
-                    . $hash;
+                $link = Url::getQueryStringFromParameters($parameters);
                 $axisXOnClick[] = $link;
             }
             $visualization->setAxisXOnClick($axisXOnClick);
@@ -143,34 +131,6 @@ class Evolution extends JqplotDataGenerator
         }
 
         return $label;
-    }
-
-    /**
-     * We link the graph dots to the same report as currently being displayed (only the date would change).
-     *
-     * In some cases the widget is loaded within a report that doesn't exist as such.
-     * For example, the dashboards loads the 'Last visits graph' widget which can't be directly linked to.
-     * Instead, the graph must link back to the dashboard.
-     *
-     * In other cases, like Visitors>Overview or the Goals graphs, we can link the graph clicks to the same report.
-     *
-     * To detect whether or not we can link to a report, we simply check if the current URL from which it was loaded
-     * belongs to the menu or not. If it doesn't belong to the menu, we do not append the hash to the URL,
-     * which results in loading the dashboard.
-     *
-     * @return array Query string array to append to the URL hash or false if the dashboard should be displayed
-     */
-    private function getQueryStringAsHash()
-    {
-        $queryString = Url::getArrayFromCurrentQueryString();
-        $piwikParameters = array('idSite', 'date', 'period', 'XDEBUG_SESSION_START', 'KEY');
-        foreach ($piwikParameters as $parameter) {
-            unset($queryString[$parameter]);
-        }
-        if (MenuMain::getInstance()->isUrlFound($queryString)) {
-            return $queryString;
-        }
-        return false;
     }
 
     private function isLinkEnabled()

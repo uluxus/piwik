@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -9,8 +9,9 @@
 
 namespace Piwik\Plugins\CoreConsole\Commands;
 
+use Piwik\Development;
 use Piwik\Plugin\ConsoleCommand;
-use Symfony\Component\Console\Input\InputArgument;
+use Piwik\SettingsPiwik;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -19,6 +20,11 @@ use Symfony\Component\Console\Output\OutputInterface;
  */
 class GitCommit extends ConsoleCommand
 {
+    public function isEnabled()
+    {
+        return Development::isEnabled() && SettingsPiwik::isGitDeployment();
+    }
+
     protected function configure()
     {
         $this->setName('git:commit')
@@ -53,7 +59,7 @@ class GitCommit extends ConsoleCommand
 
         if (!$this->hasChangesToBeCommitted()) {
             $dialog   = $this->getHelperSet()->get('dialog');
-            $question = '<question>There are no changes to be commited in the super repo, do you just want to commit and converge submodules?</question>';
+            $question = '<question>There are no changes to be committed in the super repo, do you just want to commit and converge submodules?</question>';
             if (!$dialog->askConfirmation($output, $question, false)) {
                 $output->writeln('<info>Cool, nothing done. Stage files using "git add" and try again.</info>');
                 return;

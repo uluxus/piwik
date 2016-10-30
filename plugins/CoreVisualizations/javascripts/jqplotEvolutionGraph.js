@@ -1,5 +1,5 @@
 /**
- * Piwik - Web Analytics
+ * Piwik - free/libre analytics platform
  *
  * DataTable UI class for JqplotGraph/Evolution.
  *
@@ -22,7 +22,7 @@
 
         _setJqplotParameters: function (params) {
             JqplotGraphDataTablePrototype._setJqplotParameters.call(this, params);
-            
+
             var defaultParams = {
                 axes: {
                     xaxis: {
@@ -89,7 +89,8 @@
                     if (lastTick !== false && typeof self.jqplotParams.axes.xaxis.onclick != 'undefined'
                         && typeof self.jqplotParams.axes.xaxis.onclick[lastTick] == 'string') {
                         var url = self.jqplotParams.axes.xaxis.onclick[lastTick];
-                        piwikHelper.redirectToUrl(url);
+
+                        broadcast.propagateNewPage(url);
                     }
                 })
                 .on('jqplotPiwikTickOver', function (e, tick) {
@@ -100,17 +101,19 @@
                     } else {
                         label = self.jqplotParams.axes.xaxis.ticks[tick];
                     }
-        
+
                     var text = [];
                     for (var d = 0; d < self.data.length; d++) {
                         var value = self.formatY(self.data[d][tick], d);
                         var series = self.jqplotParams.series[d].label;
-                        text.push('<strong>' + value + '</strong> ' + series);
+                        text.push('<strong>' + value + '</strong> ' + piwikHelper.htmlEntities(series));
                     }
+                    var content = '<h3>'+piwikHelper.htmlEntities(label)+'</h3>'+text.join('<br />');
+
                     $(this).tooltip({
                         track:   true,
                         items:   'div',
-                        content: '<h3>'+label+'</h3>'+text.join('<br />'),
+                        content: content,
                         show: false,
                         hide: false
                     }).trigger('mouseover');
@@ -129,6 +132,10 @@
 
         render: function () {
             JqplotGraphDataTablePrototype.render.call(this);
+
+            if (initializeSparklines) {
+                initializeSparklines();
+            }
         }
     });
 

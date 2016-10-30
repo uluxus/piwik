@@ -1,5 +1,5 @@
 /*!
- * Piwik - Web Analytics
+ * Piwik - free/libre analytics platform
  *
  * PageRenderer class for screenshot tests.
  *
@@ -19,7 +19,7 @@ exports.parse = function () {
                 value = matches[2];
 
             result[key.toString()] = value || true;
-        } else {
+        } else if (arg) {
             result.tests.push(arg);
         }
     }

@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,14 +8,9 @@
  */
 namespace Piwik\Plugins\Insights;
 
-use Piwik\DataTable;
-use Piwik\Date;
-use Piwik\Log;
-use Piwik\Period\Range;
-use Piwik\Piwik;
-use Piwik\Plugins\API\ProcessedReport;
 use Piwik\API\Request as ApiRequest;
-use Piwik\Plugins\VisitsSummary\API as VisitsSummaryAPI;
+use Piwik\DataTable;
+use Piwik\Piwik;
 
 /**
  * API for plugin Insights
@@ -24,8 +19,19 @@ use Piwik\Plugins\VisitsSummary\API as VisitsSummaryAPI;
  */
 class API extends \Piwik\Plugin\API
 {
-    const FILTER_BY_NEW = 'new';
+    /**
+     * Include only 'movers' which are existing in the current and past report.
+     */
     const FILTER_BY_MOVERS = 'movers';
+
+    /**
+     * Include only 'new' rows which were not existing in the past report.
+     */
+    const FILTER_BY_NEW = 'new';
+
+    /**
+     * Include only 'disappeared' rows which were existing in the past report but no longer in the current report.
+     */
     const FILTER_BY_DISAPPEARED = 'disappeared';
 
     /**
@@ -33,36 +39,49 @@ class API extends \Piwik\Plugin\API
      */
     private $model;
 
-    /**
-     * Those reports will be included in the insight / moversAndShakers overview reports.
-     * You can configure any API parameter for each report such as "flat", "limitIncreaser", "minGrowth", ...
-     * @var array
-     */
-    private $reportIds = array(
-        'Actions_getPageUrls' => array(),
-        'Actions_getPageTitles' => array(),
-        'Actions_getDownloads' => array('flat' => 1),
-        'Referrers_getWebsites' => array(),
-        'Referrers_getCampaigns' => array(),
-        'Referrers_getSocials' => array(),
-        'Referrers_getSearchEngines' => array(),
-        'UserCountry_getCountry' => array(),
-    );
-
-    protected function __construct()
+    public function __construct(Model $model)
     {
-        parent::__construct();
-
-        $this->model = new Model();
+        $this->model = $model;
     }
 
+    private function getOverviewReports()
+    {
+        $reports = array();
+
+        /**
+         * Triggered to gather all reports to be displayed in the "Insight" and "Movers And Shakers" overview reports.
+         * Plugins that want to add new reports to the overview should subscribe to this event and add reports to the
+         * incoming array. API parameters can be configured as an array optionally.
+         *
+         * **Example**
+         *
+         *     public function addReportToInsightsOverview(&$reports)
+         *     {
+         *         $reports['Actions_getPageUrls']  = array();
+         *         $reports['Actions_getDownloads'] = array('flat' => 1, 'minGrowthPercent' => 60);
+         *     }
+         *
+         * @param array &$reports An array containing a report unique id as key and an array of API parameters as
+         *                        values.
+         */
+        Piwik::postEvent('Insights.addReportToOverview', array(&$reports));
+
+        return $reports;
+    }
+
+    /**
+     * Detects whether insights can be generated for this date/period combination or not.
+     * @param string $date     eg 'today', '2012-12-12'
+     * @param string $period   eg 'day' or 'week'
+     *
+     * @return bool
+     */
     public function canGenerateInsights($date, $period)
     {
         Piwik::checkUserHasSomeViewAccess();
 
         try {
-            $model    = new Model();
-            $lastDate = $model->getLastDate($date, $period, 1);
+            $lastDate = $this->model->getLastDate($date, $period, 1);
         } catch (\Exception $e) {
             return false;
         }
@@ -74,6 +93,18 @@ class API extends \Piwik\Plugin\API
         return true;
     }
 
+    /**
+     * Generates insights for a set of reports. Plugins can add their own reports to be included in the insights
+     * overview by listening to the {@hook Insights.addReportToOverview} event.
+     *
+     * @param int $idSite
+     * @param string $period
+     * @param string $date
+     * @param bool|string $segment
+     *
+     * @return DataTable\Map   A map containing a dataTable for each insight report. See {@link getInsights()} for more
+     *                         information
+     */
     public function getInsightsOverview($idSite, $period, $date, $segment = false)
     {
         Piwik::checkUserHasViewAccess($idSite);
@@ -90,6 +121,18 @@ class API extends \Piwik\Plugin\API
         return $map;
     }
 
+    /**
+     * Detects the movers and shakers for a set of reports. Plugins can add their own reports to be included in this
+     * overview by listening to the {@hook Insights.addReportToOverview} event.
+     *
+     * @param int $idSite
+     * @param string $period
+     * @param string $date
+     * @param bool|string $segment
+     *
+     * @return DataTable\Map   A map containing a dataTable for each movers and shakers report. See
+     *                         {@link getMoversAndShakers()} for more information
+     */
     public function getMoversAndShakersOverview($idSite, $period, $date, $segment = false)
     {
         Piwik::checkUserHasViewAccess($idSite);
@@ -110,10 +153,12 @@ class API extends \Piwik\Plugin\API
 
         /** @var DataTable[] $tables */
         $tables = array();
-        foreach ($this->reportIds as $reportId => $reportParams) {
-            foreach ($defaultParams as $key => $defaultParam) {
-                if (!array_key_exists($key, $reportParams)) {
-                    $reportParams[$key] = $defaultParam;
+        foreach ($this->getOverviewReports() as $reportId => $reportParams) {
+            if (!empty($reportParams)) {
+                foreach ($defaultParams as $key => $defaultParam) {
+                    if (!array_key_exists($key, $reportParams)) {
+                        $reportParams[$key] = $defaultParam;
+                    }
                 }
             }
 
@@ -134,6 +179,25 @@ class API extends \Piwik\Plugin\API
         return $map;
     }
 
+    /**
+     * Detects the movers and shakers of a given date / report combination. A mover and shakers has an higher impact
+     * than other rows on average. For instance if a sites pageviews increase by 10% a page that increased by 40% at the
+     * same time contributed significantly more to the success than the average of 10%.
+     *
+     * @param int $idSite
+     * @param string $period
+     * @param string $date
+     * @param string $reportUniqueId   eg 'Actions_getPageUrls'. An id like 'Goals_getVisitsUntilConversion_idGoal--4' works as well.
+     * @param bool|string $segment
+     * @param int $comparedToXPeriods
+     * @param int $limitIncreaser      Value '0' ignores all increasers
+     * @param int $limitDecreaser      Value '0' ignores all decreasers
+     *
+     * @return DataTable
+     *
+     * @throws \Exception In case a report having the given ID does not exist
+     * @throws \Exception In case the report exists but does not return a dataTable
+     */
     public function getMoversAndShakers($idSite, $period, $date, $reportUniqueId, $segment = false,
                                         $comparedToXPeriods = 1, $limitIncreaser = 4, $limitDecreaser = 4)
     {
@@ -144,17 +208,49 @@ class API extends \Piwik\Plugin\API
 
         $reportMetadata = $this->model->getReportByUniqueId($idSite, $reportUniqueId);
 
-        $totalValue     = $this->model->getTotalValue($idSite, $period, $date, $metric);
+        if (empty($reportMetadata)) {
+            throw new \Exception('A report having the ID ' . $reportUniqueId .  ' does not exist');
+        }
+
+        $totalValue     = $this->model->getTotalValue($idSite, $period, $date, $metric, $segment);
         $currentReport  = $this->model->requestReport($idSite, $period, $date, $reportUniqueId, $metric, $segment);
+        $this->checkReportIsValid($currentReport);
 
         $lastDate       = $this->model->getLastDate($date, $period, $comparedToXPeriods);
-        $lastTotalValue = $this->model->getTotalValue($idSite, $period, $lastDate, $metric);
+        $lastTotalValue = $this->model->getTotalValue($idSite, $period, $lastDate, $metric, $segment);
         $lastReport     = $this->model->requestReport($idSite, $period, $lastDate, $reportUniqueId, $metric, $segment);
+        $this->checkReportIsValid($lastReport);
 
         $insight = new InsightReport();
         return $insight->generateMoverAndShaker($reportMetadata, $period, $date, $lastDate, $metric, $currentReport, $lastReport, $totalValue, $lastTotalValue, $orderBy, $limitIncreaser, $limitDecreaser);
     }
 
+    /**
+     * Generates insights by comparing the report for a given date/period with a different date and calculating the
+     * difference. The API can exclude rows which growth is not good enough or did not have enough impact.
+     *
+     * @param int $idSite
+     * @param string $period
+     * @param string $date
+     * @param string $reportUniqueId   eg 'Actions_getPageUrls'. An id like 'Goals_getVisitsUntilConversion_idGoal--4' works as well.
+     * @param bool|string $segment
+     * @param int $limitIncreaser      Value '0' ignores all increasers
+     * @param int $limitDecreaser      Value '0' ignores all decreasers
+     * @param string $filterBy         By default all rows will be ignored. If given only 'movers', 'new' or 'disappeared' will be returned.
+     * @param int $minImpactPercent    The minimum impact in percent. Eg '2%' of 1000 visits means the change /
+     *                                 increase / decrease has to be at least 20 visits. Usually the '2%' are based on the total
+     *                                 amount of visits but for reports having way less visits the metric total is used. Eg A page
+     *                                 has 1000 visits but only 100 visits having keywords. In this case a minimum impact of '2%' evaluates to 2 and not 20.
+     * @param int $minGrowthPercent    The amount of percent a row has to increase or decrease at least compared to the previous period.
+     *                                 If value is '20' the growth has to be either at least '+20%' or '-20%' and lower.
+     * @param int $comparedToXPeriods  The report will be compared to X periods before.
+     * @param string $orderBy          Orders the rows by 'absolute', 'relative' or 'importance'.
+     *
+     * @return DataTable
+     *
+     * @throws \Exception In case a report having the given ID does not exist
+     * @throws \Exception In case the report exists but does not return a dataTable
+     */
     public function getInsights(
         $idSite, $period, $date, $reportUniqueId, $segment = false, $limitIncreaser = 5, $limitDecreaser = 5,
         $filterBy = '', $minImpactPercent = 2, $minGrowthPercent = 20,
@@ -166,12 +262,18 @@ class API extends \Piwik\Plugin\API
 
         $reportMetadata = $this->model->getReportByUniqueId($idSite, $reportUniqueId);
 
-        $totalValue     = $this->model->getTotalValue($idSite, $period, $date, $metric);
+        if (empty($reportMetadata)) {
+            throw new \Exception('A report having the ID ' . $reportUniqueId .  ' does not exist');
+        }
+
+        $totalValue     = $this->model->getTotalValue($idSite, $period, $date, $metric, $segment);
         $currentReport  = $this->model->requestReport($idSite, $period, $date, $reportUniqueId, $metric, $segment);
+        $this->checkReportIsValid($currentReport);
 
         $lastDate       = $this->model->getLastDate($date, $period, $comparedToXPeriods);
-        $lastTotalValue = $this->model->getTotalValue($idSite, $period, $lastDate, $metric);
+        $lastTotalValue = $this->model->getTotalValue($idSite, $period, $lastDate, $metric, $segment);
         $lastReport     = $this->model->requestReport($idSite, $period, $lastDate, $reportUniqueId, $metric, $segment);
+        $this->checkReportIsValid($lastReport);
 
         $minGrowthPercentPositive = abs($minGrowthPercent);
         $minGrowthPercentNegative = -1 * $minGrowthPercentPositive;
@@ -203,6 +305,13 @@ class API extends \Piwik\Plugin\API
         $insight->markMoversAndShakers($table, $currentReport, $lastReport, $totalValue, $lastTotalValue);
 
         return $table;
+    }
+
+    private function checkReportIsValid($report)
+    {
+        if (!($report instanceof DataTable)) {
+            throw new \Exception('Insight can be only generated for reports returning a dataTable');
+        }
     }
 
     private function requestApiMethod($method, $idSite, $period, $date, $reportId, $segment, $additionalParams)

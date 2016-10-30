@@ -1,10 +1,10 @@
 <div class="insightsDataTable dataTable"
      data-table-type="InsightsDataTable"
-     data-table-onlyinsightsinit="1"
-     title="{{ consideredVisits|e('html_attr') }} {{ consideredChanges|e('html_attr') }}">
+     data-table-onlyinsightsinit="1">
     {% if reports.getColumns|length > 0 %}
 
-        <table class="dataTable">
+        <table class="dataTable"
+               title="{{ consideredGrowth|e('html_attr') }} {{ consideredChanges|e('html_attr') }}">
             {% for dataTable in reports.getDataTables() if dataTable.getRowsCount > 0 %}
                 {% set metadata = dataTable.getAllTableMetadata %}
 
@@ -29,7 +29,8 @@
 
     {% else %}
 
-        <div class="pk-emptyDataTable">
+        <div class="pk-emptyDataTable"
+             title="{{ consideredGrowth|e('html_attr') }} {{ consideredChanges|e('html_attr') }}">
             {{ 'Insights_NoResultMatchesCriteria'|translate }}
         </div>
 

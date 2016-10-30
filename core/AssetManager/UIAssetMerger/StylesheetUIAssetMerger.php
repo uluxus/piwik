@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -9,10 +9,11 @@
 namespace Piwik\AssetManager\UIAssetMerger;
 
 use Exception;
+use lessc;
 use Piwik\AssetManager\UIAsset;
 use Piwik\AssetManager\UIAssetMerger;
+use Piwik\Common;
 use Piwik\Piwik;
-use lessc;
 
 class StylesheetUIAssetMerger extends UIAssetMerger
 {
@@ -21,7 +22,12 @@ class StylesheetUIAssetMerger extends UIAssetMerger
      */
     private $lessCompiler;
 
-    function __construct($mergedAsset, $assetFetcher, $cacheBuster)
+    /**
+     * @var UIAsset[]
+     */
+    private $cssAssetsToReplace = array();
+
+    public function __construct($mergedAsset, $assetFetcher, $cacheBuster)
     {
         parent::__construct($mergedAsset, $assetFetcher, $cacheBuster);
 
@@ -30,18 +36,57 @@ class StylesheetUIAssetMerger extends UIAssetMerger
 
     protected function getMergedAssets()
     {
-        foreach($this->getAssetCatalog()->getAssets() as $uiAsset) {
+        // note: we're using setImportDir on purpose (not addImportDir)
+        $this->lessCompiler->setImportDir(PIWIK_USER_PATH);
+        $concatenatedAssets = $this->getConcatenatedAssets();
 
-            $content = $uiAsset->getContent();
-            if (false !== strpos($content, '@import')) {
-                $this->lessCompiler->addImportDir(dirname($uiAsset->getAbsoluteLocation()));
-            }
+        $this->lessCompiler->setFormatter('classic');
+        $compiled = $this->lessCompiler->compile($concatenatedAssets);
 
+        foreach ($this->cssAssetsToReplace as $asset) {
+            // to fix #10173
+            $cssPath = $asset->getAbsoluteLocation();
+            $cssContent = $this->processFileContent($asset);
+            $compiled = str_replace($this->getCssStatementForReplacement($cssPath), $cssContent, $compiled);
         }
 
-        return $this->lessCompiler->compile($this->getConcatenatedAssets());
+        $this->mergedContent = $compiled;
+        $this->cssAssetsToReplace = array();
+
+        return $compiled;
+    }
+    
+    private function getCssStatementForReplacement($path)
+    {
+        return '.nonExistingSelectorOnlyForReplacementOfCssFiles { display:"' . $path . '"; }';
     }
 
+    protected function concatenateAssets()
+    {
+        $mergedContent = '';
+
+        foreach ($this->getAssetCatalog()->getAssets() as $uiAsset) {
+            $uiAsset->validateFile();
+
+            try {
+                $path = $uiAsset->getAbsoluteLocation();
+            } catch (Exception $e) {
+                $path = null;
+            }
+
+            if (!empty($path) && Common::stringEndsWith($path, '.css')) {
+                // to fix #10173
+                $mergedContent .= "\n" . $this->getCssStatementForReplacement($path) . "\n";
+                $this->cssAssetsToReplace[] = $uiAsset;
+            } else {
+                $content = $this->processFileContent($uiAsset);
+                $mergedContent .= $this->getFileSeparator() . $content;
+            }
+        }
+
+        $this->mergedContent = $mergedContent;
+    }
+    
     /**
      * @return lessc
      * @throws Exception
@@ -87,46 +132,71 @@ class StylesheetUIAssetMerger extends UIAssetMerger
 
     protected function processFileContent($uiAsset)
     {
-        return $this->rewriteCssPathsDirectives($uiAsset);
+        $pathsRewriter = $this->getCssPathsRewriter($uiAsset);
+        $content = $uiAsset->getContent();
+        $content = $this->rewriteCssImagePaths($content, $pathsRewriter);
+        $content = $this->rewriteCssImportPaths($content, $pathsRewriter);
+        return $content;
     }
 
     /**
-     * Rewrite css url directives
+     * Rewrite CSS url() directives
+     *
+     * @param string $content
+     * @param callable $pathsRewriter
+     * @return string
+     */
+    private function rewriteCssImagePaths($content, $pathsRewriter)
+    {
+        $content = preg_replace_callback("/(url\(['\"]?)([^'\")]*)/", $pathsRewriter, $content);
+        return $content;
+    }
+
+    /**
+     * Rewrite CSS import directives
+     *
+     * @param string $content
+     * @param callable $pathsRewriter
+     * @return string
+     */
+    private function rewriteCssImportPaths($content, $pathsRewriter)
+    {
+        $content = preg_replace_callback("/(@import \")([^\")]*)/", $pathsRewriter, $content);
+        return $content;
+    }
+
+    /**
+     * Rewrite CSS url directives
      * - rewrites paths defined relatively to their css/less definition file
      * - rewrite windows directory separator \\ to /
      *
      * @param UIAsset $uiAsset
-     * @return string
+     * @return \Closure
      */
-    private function rewriteCssPathsDirectives($uiAsset)
+    private function getCssPathsRewriter($uiAsset)
     {
-        static $rootDirectoryLength = null;
-        if (is_null($rootDirectoryLength)) {
-            $rootDirectoryLength = self::countDirectoriesInPathToRoot($uiAsset);
-        }
-
         $baseDirectory = dirname($uiAsset->getRelativeLocation());
-        $content = preg_replace_callback(
-            "/(url\(['\"]?)([^'\")]*)/",
-            function ($matches) use ($rootDirectoryLength, $baseDirectory) {
 
-                $absolutePath = realpath(PIWIK_USER_PATH . "/$baseDirectory/" . $matches[2]);
+        return function ($matches) use ($baseDirectory) {
+            $absolutePath = PIWIK_USER_PATH . "/$baseDirectory/" . $matches[2];
 
-                if($absolutePath) {
+            // Allow to import extension less file
+            if (strpos($matches[2], '.') === false) {
+                $absolutePath .= '.less';
+            }
 
-                    $relativePath = substr($absolutePath, $rootDirectoryLength);
+            // Prevent from rewriting full path
+            $absolutePath = realpath($absolutePath);
+            if ($absolutePath) {
+                $relativePath = $baseDirectory . "/" . $matches[2];
+                $relativePath = str_replace('\\', '/', $relativePath);
+                $publicPath   = $matches[1] . $relativePath;
+            } else {
+                $publicPath   = $matches[1] . $matches[2];
+            }
 
-                    $relativePath = str_replace('\\', '/', $relativePath);
-
-                    return $matches[1] . $relativePath;
-
-                } else {
-                    return $matches[1] . $matches[2];
-                }
-            },
-            $uiAsset->getContent()
-        );
-        return $content;
+            return $publicPath;
+        };
     }
 
     /**
@@ -136,8 +206,10 @@ class StylesheetUIAssetMerger extends UIAssetMerger
     protected function countDirectoriesInPathToRoot($uiAsset)
     {
         $rootDirectory = realpath($uiAsset->getBaseDirectory());
-        if ($rootDirectory != '/' && substr_compare($rootDirectory, '/', -1)) {
-            $rootDirectory .= '/';
+
+        if ($rootDirectory != PATH_SEPARATOR
+            && substr($rootDirectory, -strlen(PATH_SEPARATOR)) !== PATH_SEPARATOR) {
+            $rootDirectory .= PATH_SEPARATOR;
         }
         $rootDirectoryLen = strlen($rootDirectory);
         return $rootDirectoryLen;

@@ -1,17 +1,17 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  *
  */
-namespace Piwik\Plugins\DBStats\Mocks;
+namespace Piwik\Plugins\DBStats\tests\Mocks;
 
-use Piwik\Piwik;
 use Piwik\Common;
+use Piwik\Plugins\DBStats\MySQLMetadataDataAccess;
 
-class MockDataAccess
+class MockDataAccess extends MySQLMetadataDataAccess
 {
     public static $tableStatuses = array(
         'user' => array(5, 8192, 8192),
@@ -29,7 +29,8 @@ class MockDataAccess
         'option' => array(200, 16000, 8192),
         'session' => array(0, 8192, 8192),
         'archive_numeric' => array(8000, 16000, 16000),
-        'archive_blob' => array(8000, 128000, 1024)
+        'archive_blob' => array(8000, 128000, 1024),
+        'segment' => array(3, 4048, 8192),
     );
 
     public static $numericRowCountsByArchiveName = array(
@@ -120,9 +121,9 @@ class MockDataAccess
     public function getTableNameKey($tableName)
     {
         $result = Common::unprefixTable($tableName);
-        if (strpos($tableName, "archive_numeric")) {
+        if (strpos($tableName, "archive_numeric") !== false) {
             $result = "archive_numeric";
-        } else if (strpos($tableName, "archive_blob")) {
+        } else if (strpos($tableName, "archive_blob") !== false) {
             $result = "archive_blob";
         }
         return $result;
@@ -130,7 +131,7 @@ class MockDataAccess
 
     public function getRowCountsByArchiveName($tableName, $extraCols)
     {
-        if (strpos($tableName, "achive_numeric")) {
+        if (strpos($tableName, "achive_numeric") !== false) {
             return self::$numericRowCountsByArchiveName;
         } else {
             return self::$blobRowCountsByArchiveName;

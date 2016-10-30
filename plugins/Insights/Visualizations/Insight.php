@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -11,11 +11,9 @@ namespace Piwik\Plugins\Insights\Visualizations;
 
 use Piwik\Common;
 use Piwik\DataTable;
-use Piwik\Period\Range;
 use Piwik\Plugin\ViewDataTable;
 use Piwik\Plugin\Visualization;
 use Piwik\Plugins\Insights\API;
-use Piwik\Plugins\Insights\Model;
 
 /**
  * InsightsVisualization Visualization.
@@ -27,7 +25,7 @@ class Insight extends Visualization
     const ID = 'insightsVisualization';
     const TEMPLATE_FILE     = '@Insights/insightVisualization.twig';
     const FOOTER_ICON_TITLE = 'Insights';
-    const FOOTER_ICON       = 'plugins/Insights/images/idea.png';
+    const FOOTER_ICON       = 'icon-insights';
 
     public function beforeLoadDataTable()
     {
@@ -41,6 +39,10 @@ class Insight extends Visualization
 
         $report = $this->requestConfig->apiMethodToRequestDataTable;
         $report = str_replace('.', '_', $report);
+
+        if (!empty($this->requestConfig->request_parameters_to_modify['reportUniqueId'])) {
+            $report = $this->requestConfig->request_parameters_to_modify['reportUniqueId'];
+        }
 
         $this->requestConfig->apiMethodToRequestDataTable = 'Insights.getInsights';
 
@@ -95,6 +97,7 @@ class Insight extends Visualization
         $this->config->show_pagination_control = false;
         $this->config->show_offset_information = false;
         $this->config->show_search = false;
+        $this->config->show_export_as_rss_feed = false;
 
         if (!self::canDisplayViewDataTable($this)) {
             $this->assignTemplateVar('cannotDisplayReport', true);
@@ -113,6 +116,11 @@ class Insight extends Visualization
         $canGenerateInsights = API::getInstance()->canGenerateInsights($date, $period);
 
         if (!$canGenerateInsights) {
+            return false;
+        }
+
+        if ($view->requestConfig->apiMethodToRequestDataTable
+            && 0 === strpos($view->requestConfig->apiMethodToRequestDataTable, 'DBStats')) {
             return false;
         }
 

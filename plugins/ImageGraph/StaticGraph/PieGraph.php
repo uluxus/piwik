@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -12,7 +12,7 @@ namespace Piwik\Plugins\ImageGraph\StaticGraph;
 use Piwik\Plugins\ImageGraph\StaticGraph;
 use pPie;
 
-require_once PIWIK_INCLUDE_PATH . "/libs/pChart2.1.3/class/pPie.class.php";
+require_once PIWIK_INCLUDE_PATH . "/libs/pChart/class/pPie.class.php";
 
 /**
  *

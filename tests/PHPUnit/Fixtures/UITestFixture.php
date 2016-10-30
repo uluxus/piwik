@@ -1,35 +1,53 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  */
 namespace Piwik\Tests\Fixtures;
 
-use Piwik\DbHelper;
-use Piwik\Plugins\UsersManager\API as UsersManagerAPI;
-use Piwik\Plugins\VisitsSummary\API as VisitsSummaryAPI;
-use Piwik\Plugins\SitesManager\API as SitesManagerAPI;
-use Piwik\Plugins\SegmentEditor\API as APISegmentEditor;
+use Exception;
+use Piwik\API\Request;
 use Piwik\AssetManager;
-use Piwik\Date;
+use Piwik\Access;
 use Piwik\Common;
+use Piwik\Date;
 use Piwik\Db;
+use Piwik\DbHelper;
 use Piwik\FrontController;
 use Piwik\Option;
-use Piwik\Url;
-use Piwik\WidgetsList;
-use \Exception;
+use Piwik\Plugins\PrivacyManager\IPAnonymizer;
+use Piwik\Plugins\SegmentEditor\API as APISegmentEditor;
+use Piwik\Plugins\UserCountry\LocationProvider;
+use Piwik\Plugins\UsersManager\API as UsersManagerAPI;
+use Piwik\Plugins\SitesManager\API as SitesManagerAPI;
+use Piwik\Tests\Framework\Fixture;
+use Piwik\Plugins\VisitsSummary\API as VisitsSummaryAPI;
+use Piwik\Config as PiwikConfig;
 
 /**
  * Fixture for UI tests.
  */
-class UITestFixture extends OmniFixture
+class UITestFixture extends SqlDump
 {
+    const FIXTURE_LOCATION = '/tests/resources/OmniFixture-dump.sql';
+
+    public function __construct()
+    {
+        $this->dumpUrl = PIWIK_INCLUDE_PATH . self::FIXTURE_LOCATION;
+        $this->tablesPrefix = '';
+    }
+
     public function setUp()
     {
+        self::downloadGeoIpDbs();
+
         parent::setUp();
+
+        self::resetPluginsInstalledConfig();
+        self::updateDatabase();
+        self::installAndActivatePlugins($this->getTestEnvironment());
 
         // make sure site has an early enough creation date (for period selector tests)
         Db::get()->update(Common::prefixTable("site"),
@@ -37,28 +55,32 @@ class UITestFixture extends OmniFixture
             "idsite = 1"
         );
 
+        // for proper geolocation
+        LocationProvider::setCurrentProvider(LocationProvider\GeoIp\Php::ID);
+        IPAnonymizer::deactivate();
+
         $this->addOverlayVisits();
         $this->addNewSitesForSiteSelector();
 
         DbHelper::createAnonymousUser();
         UsersManagerAPI::getInstance()->setSuperUserAccess('superUserLogin', true);
+        SitesManagerAPI::getInstance()->updateSite(1, null, null, true);
 
-        Option::set("Tests.forcedNowTimestamp", $this->now->getTimestamp());
-
-        // launch archiving so tests don't run out of time
-        $date = Date::factory($this->dateTime)->toString();
-        VisitsSummaryAPI::getInstance()->get($this->idSite, 'year', $date);
-        VisitsSummaryAPI::getInstance()->get($this->idSite, 'year', $date, urlencode($this->segment));
+        // create non super user
+        UsersManagerAPI::getInstance()->addUser('oliverqueen', 'smartypants', 'oli@queenindustries.com');
+        UsersManagerAPI::getInstance()->setUserAccess('oliverqueen', 'view', array(1));
     }
 
-    public function performSetUp($testCase, $setupEnvironmentOnly = false)
+    public function performSetUp($setupEnvironmentOnly = false)
     {
-        parent::performSetUp($testCase, $setupEnvironmentOnly);
+        $this->extraTestEnvVars = array(
+            'loadRealTranslations' => 1,
+        );
+
+        parent::performSetUp($setupEnvironmentOnly);
 
         $this->createSegments();
         $this->setupDashboards();
-
-        AssetManager::getInstance()->removeMergedAssets();
 
         $visitorIdDeterministic = bin2hex(Db::fetchOne(
             "SELECT idvisitor FROM " . Common::prefixTable('log_visit')
@@ -70,11 +92,17 @@ class UITestFixture extends OmniFixture
 
         $forcedNowTimestamp = Option::get("Tests.forcedNowTimestamp");
         if ($forcedNowTimestamp == false) {
-            throw Exception("Incorrect fixture setup, Tests.forcedNowTimestamp option does not exist! Run the setup again.");
+            throw new Exception("Incorrect fixture setup, Tests.forcedNowTimestamp option does not exist! Run the setup again.");
         }
 
         $this->testEnvironment->forcedNowTimestamp = $forcedNowTimestamp;
         $this->testEnvironment->save();
+
+        // launch archiving so tests don't run out of time
+        print("Archiving in fixture set up...");
+        VisitsSummaryAPI::getInstance()->get('all', 'year', '2012-08-09');
+        VisitsSummaryAPI::getInstance()->get('all', 'year', '2012-08-09', urlencode(OmniFixture::DEFAULT_SEGMENT));
+        print("Done.");
     }
 
     private function addOverlayVisits()
@@ -99,13 +127,31 @@ class UITestFixture extends OmniFixture
             array('page-6.html', 'page-3.html', ''),
         );
 
+        $ips = array( // ip's chosen for geolocation data
+            "20.56.34.67",
+            "24.17.88.121",
+            "24.12.45.67",
+            "24.120.12.5",
+            "24.100.12.5",
+            "24.110.12.5",
+            "24.17.88.122",
+            "24.12.45.68",
+            "24.17.88.123",
+            "24.18.127.34",
+            "18.50.45.71",
+            "24.20.127.34",
+            "24.23.40.34",
+            "18.50.45.70",
+            "24.50.12.5",
+        );
+
         $date = Date::factory('yesterday');
         $t = self::getTracker($idSite = 3, $dateTime = $date->getDatetime(), $defaultInit = true);
         $t->enableBulkTracking();
 
         foreach ($visitProfiles as $visitCount => $visit) {
             $t->setNewVisitorId();
-            $t->setIp("123.234.23.$visitCount");
+            $t->setIp($ips[$visitCount]);
 
             foreach ($visit as $idx => $action) {
                 $t->setForceVisitDateTime($date->addHour($visitCount)->addHour(0.01 * $idx)->getDatetime());
@@ -172,7 +218,7 @@ class UITestFixture extends OmniFixture
     {
         $dashboardColumnCount = 3;
         $dashboardCount = 4;
-        
+
         $layout = array();
         for ($j = 0; $j != $dashboardColumnCount; ++$j) {
             $layout[] = array();
@@ -182,15 +228,16 @@ class UITestFixture extends OmniFixture
         for ($i = 0; $i != $dashboardCount; ++$i) {
             $dashboards[] = $layout;
         }
-        
+
         $oldGet = $_GET;
         $_GET['idSite'] = 1;
-        
+        $_GET['token_auth'] = Fixture::getTokenAuth();
+
         // collect widgets & sort them so widget order is not important
-        $allWidgets = array();
-        foreach (WidgetsList::get() as $category => $widgets) {
-            $allWidgets = array_merge($allWidgets, $widgets);
-        }
+        $allWidgets = Request::processRequest('API.getWidgetMetadata', array(
+            'idSite' => 1
+        ));
+
         usort($allWidgets, function ($lhs, $rhs) {
             return strcmp($lhs['uniqueId'], $rhs['uniqueId']);
         });
@@ -214,7 +261,7 @@ class UITestFixture extends OmniFixture
                 'uniqueId' => $widget['uniqueId'],
                 'parameters' => $widget['parameters']
             );
-            
+
             // dashboard images must have height of less than 4000px to avoid odd discoloration of last line of image
             $widgetEntry['parameters']['filter_limit'] = 5;
 
@@ -229,13 +276,13 @@ class UITestFixture extends OmniFixture
                 throw new Exception("Unexpected error: Incorrect dashboard widget placement logic. Something's wrong w/ the code.");
             }
         }
-        
+
         // distribute widgets in each dashboard
         $column = 0;
         foreach ($groupedWidgets as $dashboardIndex => $dashboardWidgets) {
             foreach ($dashboardWidgets as $widget) {
                 $column = ($column + 1) % $dashboardColumnCount;
-                
+
                 $dashboards[$dashboardIndex][$column][] = $widget;
             }
         }
@@ -246,7 +293,7 @@ class UITestFixture extends OmniFixture
             } else {
                 $_GET['name'] = 'dashboard name' . $id;
             }
-            $_GET['layout'] = Common::json_encode($layout);
+            $_GET['layout'] = json_encode($layout);
             $_GET['idDashboard'] = $id + 1;
             FrontController::getInstance()->fetchDispatch('Dashboard', 'saveLayout');
         }
@@ -255,11 +302,12 @@ class UITestFixture extends OmniFixture
         $dashboard = array(
             array(
                 array(
-                    'uniqueId' => "widgetVisitsSummarygetEvolutionGraphcolumnsArray",
+                    'uniqueId' => "widgetVisitsSummarygetEvolutionGraphforceView1viewDataTablegraphEvolution",
                     'parameters' => array(
                         'module' => 'VisitsSummary',
                         'action' => 'getEvolutionGraph',
-                        'columns' => 'nb_visits'
+                        'forceView' => '1',
+                        'viewDataTable' => 'graphEvolution'
                     )
                 )
             ),
@@ -268,14 +316,14 @@ class UITestFixture extends OmniFixture
         );
 
         $_GET['name'] = 'D4';
-        $_GET['layout'] = Common::json_encode($dashboard);
+        $_GET['layout'] = json_encode($dashboard);
         $_GET['idDashboard'] = 5;
         $_GET['idSite'] = 2;
         FrontController::getInstance()->fetchDispatch('Dashboard', 'saveLayout');
 
         $_GET = $oldGet;
     }
-    
+
     public function createSegments()
     {
         Db::exec("TRUNCATE TABLE " . Common::prefixTable('segment'));

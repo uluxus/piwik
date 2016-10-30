@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,10 +8,12 @@
  */
 namespace Piwik\Plugins\CorePluginsAdmin;
 
+use Piwik\Container\StaticContainer;
 use Piwik\Filechecks;
 use Piwik\Filesystem;
 use Piwik\Piwik;
-use Piwik\SettingsPiwik;
+use Piwik\Plugin\Manager as PluginManager;
+use Piwik\Plugin\Dependency as PluginDependency;
 use Piwik\Unzip;
 
 /**
@@ -19,7 +21,7 @@ use Piwik\Unzip;
  */
 class PluginInstaller
 {
-    const PATH_TO_DOWNLOAD = '/tmp/latest/plugins/';
+    const PATH_TO_DOWNLOAD = '/latest/plugins/';
     const PATH_TO_EXTRACT = '/plugins/';
 
     private $pluginName;
@@ -31,11 +33,10 @@ class PluginInstaller
 
     public function installOrUpdatePluginFromMarketplace()
     {
-        $tmpPluginZip = PIWIK_USER_PATH . self::PATH_TO_DOWNLOAD . $this->pluginName . '.zip';
-        $tmpPluginFolder = PIWIK_USER_PATH . self::PATH_TO_DOWNLOAD . $this->pluginName;
+        $tmpPluginPath = StaticContainer::get('path.tmp') . '/latest/plugins/';
 
-        $tmpPluginZip = SettingsPiwik::rewriteTmpPathWithHostname($tmpPluginZip);
-        $tmpPluginFolder = SettingsPiwik::rewriteTmpPathWithHostname($tmpPluginFolder);
+        $tmpPluginZip = $tmpPluginPath . $this->pluginName . '.zip';
+        $tmpPluginFolder = $tmpPluginPath . $this->pluginName;
 
         try {
             $this->makeSureFoldersAreWritable();
@@ -46,6 +47,13 @@ class PluginInstaller
             $metadata = $this->getPluginMetadataIfValid($tmpPluginFolder);
             $this->makeSureThereAreNoMissingRequirements($metadata);
             $this->copyPluginToDestination($tmpPluginFolder);
+
+            Filesystem::deleteAllCacheOnUpdate($this->pluginName);
+
+            $plugin = PluginManager::getInstance()->getLoadedPlugin($this->pluginName);
+            if (!empty($plugin)) {
+                $plugin->reloadPluginInformation();
+            }
 
         } catch (\Exception $e) {
 
@@ -61,8 +69,7 @@ class PluginInstaller
 
     public function installOrUpdatePluginFromFile($pathToZip)
     {
-        $tmpPluginFolder = PIWIK_USER_PATH . self::PATH_TO_DOWNLOAD . $this->pluginName;
-        $tmpPluginFolder = SettingsPiwik::rewriteTmpPathWithHostname($tmpPluginFolder);
+        $tmpPluginFolder = StaticContainer::get('path.tmp') . self::PATH_TO_DOWNLOAD . $this->pluginName;
 
         try {
             $this->makeSureFoldersAreWritable();
@@ -76,6 +83,8 @@ class PluginInstaller
 
             $this->fixPluginFolderIfNeeded($tmpPluginFolder);
             $this->copyPluginToDestination($tmpPluginFolder);
+
+            Filesystem::deleteAllCacheOnUpdate($this->pluginName);
 
         } catch (\Exception $e) {
 
@@ -93,7 +102,10 @@ class PluginInstaller
 
     private function makeSureFoldersAreWritable()
     {
-        Filechecks::dieIfDirectoriesNotWritable(array(self::PATH_TO_DOWNLOAD, self::PATH_TO_EXTRACT));
+        Filechecks::dieIfDirectoriesNotWritable(array(
+            StaticContainer::get('path.tmp') . self::PATH_TO_DOWNLOAD,
+            self::PATH_TO_EXTRACT
+        ));
     }
 
     private function downloadPluginFromMarketplace($pluginZipTargetFile)
@@ -150,18 +162,27 @@ class PluginInstaller
     private function makeSureThereAreNoMissingRequirements($metadata)
     {
         $requires = array();
-        if(!empty($metadata->require)) {
+        if (!empty($metadata->require)) {
             $requires = (array) $metadata->require;
         }
 
+        $piwikVersion = MarketplaceApiClient::getPiwikVersion();
+
         $dependency = new PluginDependency();
+        $dependency->setPiwikVersion($piwikVersion);
         $missingDependencies = $dependency->getMissingDependencies($requires);
 
         if (!empty($missingDependencies)) {
             $message = '';
             foreach ($missingDependencies as $dep) {
-                $params   = array(ucfirst($dep['requirement']), $dep['actualVersion'], $dep['requiredVersion']);
-                $message .= Piwik::translate('CorePluginsAdmin_MissingRequirementsNotice', $params);
+                if (empty($dep['actualVersion'])) {
+                    $params   = array(ucfirst($dep['requirement']), $dep['requiredVersion'], $metadata->name);
+                    $message .= Piwik::translate('CorePluginsAdmin_MissingRequirementsPleaseInstallNotice', $params);
+                } else {
+                    $params   = array(ucfirst($dep['requirement']), $dep['actualVersion'], $dep['requiredVersion']);
+                    $message .= Piwik::translate('CorePluginsAdmin_MissingRequirementsNotice', $params);
+                }
+
             }
 
             throw new PluginInstallerException($message);

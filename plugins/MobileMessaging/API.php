@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,7 +8,6 @@
  */
 namespace Piwik\Plugins\MobileMessaging;
 
-use Piwik\Common;
 use Piwik\Option;
 use Piwik\Piwik;
 use Piwik\Plugins\MobileMessaging\SMSProvider;
@@ -25,15 +24,6 @@ class API extends \Piwik\Plugin\API
 {
     const VERIFICATION_CODE_LENGTH = 5;
     const SMS_FROM = 'Piwik';
-
-    /**
-     * @param string $provider
-     * @return SMSProvider
-     */
-    static private function getSMSProviderInstance($provider)
-    {
-        return SMSProvider::factory($provider);
-    }
 
     /**
      * determine if SMS API credential are available for the current user
@@ -83,7 +73,7 @@ class API extends \Piwik\Plugin\API
     {
         $this->checkCredentialManagementRights();
 
-        $smsProviderInstance = self::getSMSProviderInstance($provider);
+        $smsProviderInstance = SMSProvider::factory($provider);
         $smsProviderInstance->verifyCredential($apiKey);
 
         $settings = $this->getCredentialManagerSettings();
@@ -160,7 +150,7 @@ class API extends \Piwik\Plugin\API
         Piwik::checkUserIsNotAnonymous();
 
         $credential = $this->getSMSAPICredential();
-        $SMSProvider = self::getSMSProviderInstance($credential[MobileMessaging::PROVIDER_OPTION]);
+        $SMSProvider = SMSProvider::factory($credential[MobileMessaging::PROVIDER_OPTION]);
         $SMSProvider->sendSMS(
             $credential[MobileMessaging::API_KEY_OPTION],
             $content,
@@ -183,7 +173,7 @@ class API extends \Piwik\Plugin\API
         $this->checkCredentialManagementRights();
 
         $credential = $this->getSMSAPICredential();
-        $SMSProvider = self::getSMSProviderInstance($credential[MobileMessaging::PROVIDER_OPTION]);
+        $SMSProvider = SMSProvider::factory($credential[MobileMessaging::PROVIDER_OPTION]);
         return $SMSProvider->getCreditLeft(
             $credential[MobileMessaging::API_KEY_OPTION]
         );
@@ -365,7 +355,7 @@ class API extends \Piwik\Plugin\API
     {
         Option::set(
             $user . MobileMessaging::USER_SETTINGS_POSTFIX_OPTION,
-            Common::json_encode($settings)
+            json_encode($settings)
         );
     }
 
@@ -392,7 +382,7 @@ class API extends \Piwik\Plugin\API
         if (empty($userSettings)) {
             $userSettings = array();
         } else {
-            $userSettings = Common::json_decode($userSettings, true);
+            $userSettings = json_decode($userSettings, true);
         }
 
         return $userSettings;
@@ -427,6 +417,7 @@ class API extends \Piwik\Plugin\API
     public function getDelegatedManagement()
     {
         Piwik::checkUserHasSomeViewAccess();
-        return Option::get(MobileMessaging::DELEGATED_MANAGEMENT_OPTION) == 'true';
+        $option = Option::get(MobileMessaging::DELEGATED_MANAGEMENT_OPTION);
+        return $option === 'true';
     }
 }

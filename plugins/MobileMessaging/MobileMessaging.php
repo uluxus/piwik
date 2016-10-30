@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,8 +8,8 @@
  */
 namespace Piwik\Plugins\MobileMessaging;
 
-use Piwik\Menu\MenuAdmin;
 use Piwik\Option;
+use Piwik\Period;
 use Piwik\Piwik;
 use Piwik\Plugins\API\API as APIPlugins;
 use Piwik\Plugins\MobileMessaging\API as APIMobileMessaging;
@@ -37,19 +37,19 @@ class MobileMessaging extends \Piwik\Plugin
     const MOBILE_TYPE = 'mobile';
     const SMS_FORMAT = 'sms';
 
-    static private $availableParameters = array(
+    private static $availableParameters = array(
         self::PHONE_NUMBERS_PARAMETER => true,
     );
 
-    static private $managedReportTypes = array(
+    private static $managedReportTypes = array(
         self::MOBILE_TYPE => 'plugins/MobileMessaging/images/phone.png'
     );
 
-    static private $managedReportFormats = array(
+    private static $managedReportFormats = array(
         self::SMS_FORMAT => 'plugins/MobileMessaging/images/phone.png'
     );
 
-    static private $availableReports = array(
+    private static $availableReports = array(
         array(
             'module' => 'MultiSites',
             'action' => 'getAll',
@@ -61,12 +61,11 @@ class MobileMessaging extends \Piwik\Plugin
     );
 
     /**
-     * @see Piwik\Plugin::getListHooksRegistered
+     * @see Piwik\Plugin::registerEvents
      */
-    public function getListHooksRegistered()
+    public function registerEvents()
     {
         return array(
-            'Menu.Admin.addItems'                       => 'addMenu',
             'AssetManager.getJavaScriptFiles'           => 'getJsFiles',
             'AssetManager.getStylesheetFiles'           => 'getStylesheetFiles',
             'ScheduledReports.getReportParameters'      => 'getReportParameters',
@@ -79,15 +78,7 @@ class MobileMessaging extends \Piwik\Plugin
             'ScheduledReports.allowMultipleReports'     => 'allowMultipleReports',
             'ScheduledReports.sendReport'               => 'sendReport',
             'Template.reportParametersScheduledReports' => 'template_reportParametersScheduledReports',
-        );
-    }
-
-    function addMenu()
-    {
-        MenuAdmin::addEntry('MobileMessaging_SettingsMenu',
-            array('module' => 'MobileMessaging', 'action' => 'index'),
-            true,
-            $order = 12
+            'Translate.getClientSideTranslationKeys' => 'getClientSideTranslationKeys'
         );
     }
 
@@ -96,7 +87,9 @@ class MobileMessaging extends \Piwik\Plugin
      */
     public function getJsFiles(&$jsFiles)
     {
-        $jsFiles[] = "plugins/MobileMessaging/javascripts/MobileMessagingSettings.js";
+        $jsFiles[] = "plugins/MobileMessaging/angularjs/delegate-mobile-messaging-settings/delegate-mobile-messaging-settings.controller.js";
+        $jsFiles[] = "plugins/MobileMessaging/angularjs/manage-sms-provider/manage-sms-provider.controller.js";
+        $jsFiles[] = "plugins/MobileMessaging/angularjs/manage-mobile-phone-numbers/manage-mobile-phone-numbers.controller.js";
     }
 
     public function getStylesheetFiles(&$stylesheets)
@@ -104,6 +97,13 @@ class MobileMessaging extends \Piwik\Plugin
         $stylesheets[] = "plugins/MobileMessaging/stylesheets/MobileMessagingSettings.less";
     }
 
+    public function getClientSideTranslationKeys(&$translationKeys)
+    {
+        $translationKeys[] = 'CoreAdminHome_SettingsSaveSuccess';
+        $translationKeys[] = 'MobileMessaging_Settings_InvalidActivationCode';
+        $translationKeys[] = 'MobileMessaging_Settings_PhoneActivated';
+    }
+    
     public function validateReportParameters(&$parameters, $reportType)
     {
         if (self::manageEvent($reportType)) {
@@ -188,7 +188,7 @@ class MobileMessaging extends \Piwik\Plugin
     }
 
     public function sendReport($reportType, $report, $contents, $filename, $prettyDate, $reportSubject, $reportTitle,
-                               $additionalFiles)
+                               $additionalFiles, Period $period = null, $force)
     {
         if (self::manageEvent($reportType)) {
             $parameters = $report['parameters'];
@@ -210,7 +210,7 @@ class MobileMessaging extends \Piwik\Plugin
         }
     }
 
-    static public function template_reportParametersScheduledReports(&$out)
+    public static function template_reportParametersScheduledReports(&$out, $context = '')
     {
         if (Piwik::isUserIsAnonymous()) {
             return;
@@ -218,7 +218,17 @@ class MobileMessaging extends \Piwik\Plugin
 
         $view = new View('@MobileMessaging/reportParametersScheduledReports');
         $view->reportType = self::MOBILE_TYPE;
-        $view->phoneNumbers = APIMobileMessaging::getInstance()->getActivatedPhoneNumbers();
+        $view->context = $context;
+        $numbers = APIMobileMessaging::getInstance()->getActivatedPhoneNumbers();
+
+        $phoneNumbers = array();
+        if (!empty($numbers)) {
+            foreach ($numbers as $number) {
+                $phoneNumbers[$number] = $number;
+            }
+        }
+
+        $view->phoneNumbers = $phoneNumbers;
         $out .= $view->render();
     }
 

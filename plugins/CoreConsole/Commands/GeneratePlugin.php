@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -9,8 +9,10 @@
 
 namespace Piwik\Plugins\CoreConsole\Commands;
 
-
 use Piwik\Filesystem;
+use Piwik\Plugins\ExamplePlugin\ExamplePlugin;
+use Piwik\Version;
+use Piwik\Plugin;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -28,25 +30,29 @@ class GeneratePlugin extends GeneratePluginBase
             ->addOption('name', null, InputOption::VALUE_REQUIRED, 'Plugin name ([a-Z0-9_-])')
             ->addOption('description', null, InputOption::VALUE_REQUIRED, 'Plugin description, max 150 characters')
             ->addOption('pluginversion', null, InputOption::VALUE_OPTIONAL, 'Plugin version')
-            ->addOption('full', null, InputOption::VALUE_OPTIONAL, 'If a value is set, an API and a Controller will be created as well. Option is only available for creating plugins, not for creating themes.');
+            ->addOption('overwrite', null, InputOption::VALUE_NONE, 'Generate even if plugin directory already exists.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $isTheme          = $this->isTheme($input);
-        $pluginName       = $this->getPluginName($input, $output);
-        $description      = $this->getPluginDescription($input, $output);
-        $version          = $this->getPluginVersion($input, $output);
-        $createFullPlugin = !$isTheme && $this->getCreateFullPlugin($input, $output);
+        $isTheme     = $this->isTheme($input);
+        $pluginName  = $this->getPluginName($input, $output);
+        $description = $this->getPluginDescription($input, $output);
+        $version     = $this->getPluginVersion($input, $output);
 
         $this->generatePluginFolder($pluginName);
+
+        $plugin = new ExamplePlugin();
+        $info   = $plugin->getInformation();
+        $exampleDescription = $info['description'];
 
         if ($isTheme) {
             $exampleFolder = PIWIK_INCLUDE_PATH . '/plugins/ExampleTheme';
             $replace       = array(
                 'ExampleTheme'       => $pluginName,
-                'ExampleDescription' => $description,
-                '0.1.0'              => $version
+                $exampleDescription  => $description,
+                '0.1.0'              => $version,
+                '3.0.0-b1'           => Version::VERSION
             );
             $whitelistFiles = array();
 
@@ -55,45 +61,39 @@ class GeneratePlugin extends GeneratePluginBase
             $exampleFolder = PIWIK_INCLUDE_PATH . '/plugins/ExamplePlugin';
             $replace       = array(
                 'ExamplePlugin'      => $pluginName,
-                'ExampleDescription' => $description,
-                '0.1.0'              => $version
+                $exampleDescription  => $description,
+                '0.1.0'              => $version,
+                '3.0.0-b1'           => Version::VERSION
             );
             $whitelistFiles = array(
                 '/ExamplePlugin.php',
                 '/plugin.json',
                 '/README.md',
-                '/.travis.yml',
+                '/CHANGELOG.md',
                 '/screenshots',
                 '/screenshots/.gitkeep',
-                '/javascripts',
-                '/javascripts/plugin.js',
+                '/docs',
+                '/docs/faq.md',
+                '/docs/index.md',
             );
-
         }
 
         $this->copyTemplateToPlugin($exampleFolder, $pluginName, $replace, $whitelistFiles);
 
-        $this->writeSuccessMessage($output, array(
-             sprintf('%s %s %s generated.', $isTheme ? 'Theme' : 'Plugin', $pluginName, $version),
-             'Enjoy!'
-        ));
-
-        if ($createFullPlugin) {
-            $this->executePluginCommand($output, 'generate:api', $pluginName);
-            $this->executePluginCommand($output, 'generate:controller', $pluginName);
+        if ($isTheme) {
+            $this->writeSuccessMessage($output, array(
+                sprintf('Theme %s %s generated.', $pluginName, $version),
+                'If you have not done yet check out our Theming guide <comment>http://developer.piwik.org/guides/theming</comment>',
+                'Enjoy!'
+            ));
+        } else {
+            $this->writeSuccessMessage($output, array(
+                sprintf('Plugin %s %s generated.', $pluginName, $version),
+                'Our developer guides will help you developing this plugin, check out <comment>http://developer.piwik.org/guides</comment>',
+                'To see a list of available generators execute <comment>./console list generate</comment>',
+                'Enjoy!'
+            ));
         }
-    }
-
-    private function executePluginCommand(OutputInterface $output, $commandName, $pluginName)
-    {
-        $command = $this->getApplication()->find($commandName);
-        $arguments = array(
-            'command'      => $commandName,
-            '--pluginname' => $pluginName
-        );
-
-        $input = new ArrayInput($arguments);
-        $command->run($input, $output);
     }
 
     /**
@@ -110,32 +110,40 @@ class GeneratePlugin extends GeneratePluginBase
     protected function generatePluginFolder($pluginName)
     {
         $pluginPath = $this->getPluginPath($pluginName);
-        Filesystem::mkdir($pluginPath, true);
+        Filesystem::mkdir($pluginPath);
     }
 
     /**
      * @param InputInterface $input
      * @param OutputInterface $output
      * @return array
-     * @throws \RunTimeException
+     * @throws \RuntimeException
      */
     protected function getPluginName(InputInterface $input, OutputInterface $output)
     {
+        $overwrite = $input->getOption('overwrite');
+
         $self = $this;
 
-        $validate = function ($pluginName) use ($self) {
+        $validate = function ($pluginName) use ($self, $overwrite) {
             if (empty($pluginName)) {
-                throw new \RunTimeException('You have to enter a plugin name');
+                throw new \RuntimeException('You have to enter a plugin name');
             }
 
-            if (!Filesystem::isValidFilename($pluginName)) {
-                throw new \RunTimeException(sprintf('The plugin name %s is not valid', $pluginName));
+            if(strlen($pluginName) > 40) {
+                throw new \RuntimeException('Your plugin name cannot be longer than 40 characters');
+            }
+
+            if (!Plugin\Manager::getInstance()->isValidPluginName($pluginName)) {
+                throw new \RuntimeException(sprintf('The plugin name %s is not valid. The name must start with a letter and is only allowed to contain numbers and letters.', $pluginName));
             }
 
             $pluginPath = $self->getPluginPath($pluginName);
 
-            if (file_exists($pluginPath)) {
-                throw new \RunTimeException('A plugin with this name already exists');
+            if (file_exists($pluginPath)
+                && !$overwrite
+            ) {
+                throw new \RuntimeException('A plugin with this name already exists');
             }
 
             return $pluginName;
@@ -159,16 +167,16 @@ class GeneratePlugin extends GeneratePluginBase
      * @param InputInterface $input
      * @param OutputInterface $output
      * @return mixed
-     * @throws \RunTimeException
+     * @throws \RuntimeException
      */
     protected function getPluginDescription(InputInterface $input, OutputInterface $output)
     {
         $validate = function ($description) {
             if (empty($description)) {
-                throw new \RunTimeException('You have to enter a description');
+                throw new \RuntimeException('You have to enter a description');
             }
             if (150 < strlen($description)) {
-                throw new \RunTimeException('Description is too long, max 150 characters allowed.');
+                throw new \RuntimeException('Description is too long, max 150 characters allowed.');
             }
 
             return $description;
@@ -201,23 +209,6 @@ class GeneratePlugin extends GeneratePluginBase
         }
 
         return $version;
-    }
-
-    /**
-     * @param InputInterface $input
-     * @param OutputInterface $output
-     * @return mixed
-     */
-    protected function getCreateFullPlugin(InputInterface $input, OutputInterface $output)
-    {
-        $full = $input->getOption('full');
-
-        if (is_null($full)) {
-            $dialog = $this->getHelperSet()->get('dialog');
-            $full = $dialog->askConfirmation($output, 'Shall we also create an API and a Controller? (y/N)', false);
-        }
-
-        return !empty($full);
     }
 
 }

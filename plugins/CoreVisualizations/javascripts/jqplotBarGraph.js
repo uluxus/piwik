@@ -1,5 +1,5 @@
 /**
- * Piwik - Web Analytics
+ * Piwik - free/libre analytics platform
  *
  * DataTable UI class for JqplotGraph/Bar.
  *
@@ -62,7 +62,7 @@
             var percentage = '';
             if (typeof this.tooltip.percentages != 'undefined') {
                 percentage = this.tooltip.percentages[seriesIndex][valueIndex];
-                percentage = ' (' + percentage + '%)';
+                percentage = ' (' + NumberFormatter.formatPercent(percentage) + ')';
             }
 
             var label = this.jqplotParams.axes.xaxis.labels[valueIndex];

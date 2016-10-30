@@ -1,5 +1,5 @@
 /**
- * Piwik - Web Analytics
+ * Piwik - free/libre analytics platform
  *
  * DataTable UI class for JqplotGraph.
  *
@@ -12,11 +12,21 @@
 
     var exports = require('piwik/UI'),
         DataTable = exports.DataTable,
-        dataTablePrototype = DataTable.prototype;
+        dataTablePrototype = DataTable.prototype,
+        getLabelFontFamily = function () {
+            if (!window.piwik.jqplotLabelFont) {
+                window.piwik.jqplotLabelFont = $('<p/>').hide().appendTo('body').css('font-family');
+            }
+
+            return window.piwik.jqplotLabelFont || 'Arial';
+        }
+        ;
+
+    exports.getLabelFontFamily = getLabelFontFamily;
 
     /**
      * DataTable UI class for jqPlot graph datatable visualizations.
-     * 
+     *
      * @constructor
      */
     exports.JqplotGraphDataTable = function (element) {
@@ -95,7 +105,7 @@
                     tickOptions: {
                         showMark: false,
                         fontSize: '11px',
-                        fontFamily: window.piwik.jqplotLabelFont || 'Arial'
+                        fontFamily: getLabelFontFamily()
                     },
                     rendererOptions: {
                         drawBaseline: false
@@ -104,7 +114,8 @@
                 axes: {
                     yaxis: {
                         tickOptions: {
-                            formatString: '%d'
+                            formatString: '%s',
+                            formatter: $.jqplot.NumberFormatter
                         }
                     }
                 }
@@ -120,13 +131,15 @@
 
             for (var seriesIdx = 0; seriesIdx != this.data.length; ++seriesIdx) {
                 var series = this.data[seriesIdx];
-                var sum = series.reduce(function (previousValue, currentValue) {
-                    if ($.isArray(currentValue) && currentValue[1]) {
-                        return previousValue + currentValue[1];
-                    }
+                var sum = 0;
 
-                    return previousValue + currentValue;
-                }, 0);
+                $.each(series, function(index, value) {
+                    if ($.isArray(value) && value[1]) {
+                        sum = sum + value[1];
+                    } else if (!$.isArray(value)) {
+                        sum = sum + value;
+                    }
+                });
 
                 var percentages = this.tooltip.percentages[seriesIdx] = [];
                 for (var valueIdx = 0; valueIdx != series.length; ++valueIdx) {
@@ -134,7 +147,7 @@
                     if ($.isArray(value) && value[1]) {
                         value = value[1];
                     }
-                    
+
                     percentages[valueIdx] = sum > 0 ? Math.round(100 * value / sum) : 0;
                 }
             }
@@ -165,7 +178,9 @@
 
             // manage resources
             target.on('piwikDestroyPlot', function () {
-                $(window).off('resize', this._resizeListener);
+                if (this._resizeListener) {
+                    $(window).off('resize', this._resizeListener);
+                }
                 self._plot.destroy();
                 for (var i = 0; i < $.jqplot.visiblePlots.length; i++) {
                     if ($.jqplot.visiblePlots[i] == self._plot) {
@@ -261,6 +276,70 @@
             loading.css({opacity: .7});
         },
 
+        /**
+         * This method sums up total width of all tick according to currently
+         * set font-family, font-size and font-weight. It is achieved by
+         * creating span elements with ticks and adding their width.
+         * Rendered ticks have to be visible to get their real width. But it
+         * is too fast for user to notice it. If total ticks width is bigger
+         * than container width then half of ticks is being cut out and their
+         * width is tested again. Until their total width is smaller than chart
+         * div. There is a failsafe so check will be performed no more than 20
+         * times, which is I think more than enough. Each tick have its own
+         * gutter, by default width of 5 px from each side so they are more
+         * readable.
+         *
+         * @param $targetDiv
+         * @private
+         */
+        _checkTicksWidth: function($targetDiv){
+            if(typeof this.jqplotParams.axes.xaxis.ticksOriginal === 'undefined' || this.jqplotParams.axes.xaxis.ticksOriginal === {}){
+                this.jqplotParams.axes.xaxis.ticksOriginal = this.jqplotParams.axes.xaxis.ticks.slice();
+            }
+
+            var ticks = this.jqplotParams.axes.xaxis.ticks = this.jqplotParams.axes.xaxis.ticksOriginal.slice();
+
+            var divWidth = $targetDiv.width();
+            var tickOptions = $.extend(true, {}, this.jqplotParams.axesDefaults.tickOptions, this.jqplotParams.axes.xaxis.tickOptions);
+            var gutter = tickOptions.gutter || 5;
+            var sumWidthOfTicks = Number.MAX_VALUE;
+            var $labelTestChamber = {};
+            var tick = "";
+            var $body = $("body");
+            var maxRunsFailsafe = 20;
+            var ticksCount = 0;
+            var key = 0;
+
+            while(sumWidthOfTicks > divWidth && maxRunsFailsafe > 0) {
+                sumWidthOfTicks = 0;
+                for (key = 0; key < ticks.length; key++) {
+                    tick = ticks[key];
+                    if (tick !== " " && tick !== "") {
+                        $labelTestChamber = $("<span/>", {
+                            style: 'font-size: ' + (tickOptions.fontSize || '11px') + '; font-family: ' + (tickOptions.fontFamily || 'Arial, Helvetica, sans-serif') + ';' + (tickOptions.fontWeight || 'normal') + ';' + 'clear: both; float: none;',
+                            text: tick
+                        }).appendTo($body);
+                        sumWidthOfTicks += ($labelTestChamber.width() + gutter*2);
+                        $labelTestChamber.remove();
+                    }
+                }
+
+                ticksCount = 0;
+                if (sumWidthOfTicks > divWidth) {
+                    for (key = 0; key < ticks.length; key++) {
+                        tick = ticks[key];
+                        if (tick !== " " && tick !== "") {
+                            if (ticksCount % 2 == 1) {
+                                ticks[key] = " ";
+                            }
+                            ticksCount++;
+                        }
+                    }
+                }
+                maxRunsFailsafe--;
+            }
+        },
+
         /** Generic render function */
         render: function () {
             if (this.data.length == 0) { // sanity check
@@ -283,6 +362,14 @@
             // report has been displayed.
             var self = this;
 
+            // before drawing a jqplot chart, check if all labels ticks will fit
+            // into it
+            if( this.param.viewDataTable === "graphBar"
+                || this.param.viewDataTable === "graphVerticalBar"
+                || this.param.viewDataTable === "graphEvolution" ) {
+                self._checkTicksWidth(target);
+            }
+
             // create jqplot chart
             try {
                 var plot = self._plot = $.jqplot(targetDivId, this.data, this.jqplotParams);
@@ -300,7 +387,9 @@
             // TODO: this code destroys plots when a page is switched. there must be a better way of managing memory.
             if (typeof $.jqplot.visiblePlots == 'undefined') {
                 $.jqplot.visiblePlots = [];
-                $('.nav').on('piwikSwitchPage', function () {
+                var $rootScope = piwikHelper.getAngularDependency('$rootScope');
+
+                $rootScope.$on('piwikPageChange', function () {
                     for (var i = 0; i < $.jqplot.visiblePlots.length; i++) {
                         if ($.jqplot.visiblePlots[i] == null) {
                             continue;
@@ -353,10 +442,10 @@
             });
 
             var popover = $(document.createElement('div'));
-            
+
             popover.append('<div style="font-size: 13px; margin-bottom: 10px;">'
                 + lang.exportText + '</div>').append($(img));
-                
+
             popover.dialog({
                 title: lang.exportTitle,
                 modal: true,
@@ -444,7 +533,7 @@
             var axisId = this.jqplotParams.series[seriesIndex].yaxis;
             var formatString = this.jqplotParams.axes[axisId].tickOptions.formatString;
 
-            return formatString.replace('%s', value);
+            return $.jqplot.NumberFormatter(formatString, value);
         },
 
         /**
@@ -484,7 +573,7 @@
             } else if (viewDataTable == 'graphVerticalBar') {
                 graphType = 'bar';
             }
-            
+
             var namespace = graphType + '-graph-colors';
 
             this.jqplotParams.seriesColors = colorManager.getColors(namespace, seriesColorNames, true);
@@ -606,7 +695,6 @@ JQPlotExternalSeriesToggle.prototype = {
 
 };
 
-
 // ROW EVOLUTION SERIES TOGGLE
 
 function RowEvolutionSeriesToggle(targetDivId, jqplotData, initiallyShowAll) {
@@ -621,7 +709,7 @@ RowEvolutionSeriesToggle.prototype.attachEvents = function () {
 
     this.seriesPickers.each(function (i) {
         var el = $(this);
-        el.click(function (e) {
+        el.off('click').on('click', function (e) {
             if (e.shiftKey) {
                 self.toggleSeries(i);
 
@@ -662,6 +750,21 @@ RowEvolutionSeriesToggle.prototype.beforeReplot = function () {
         }
     }
 };
+
+// ------------------------------------------------------------
+//  PIWIK NUMBERFORMATTER PLUGIN FOR JQPLOT
+// ------------------------------------------------------------
+(function($){
+
+    $.jqplot.NumberFormatter = function (format, value) {
+
+        if (!$.isNumeric(value)) {
+            return format.replace(/%s/, value);
+        }
+        return format.replace(/%s/, NumberFormatter.formatNumber(value));
+    }
+
+})(jQuery);
 
 
 // ------------------------------------------------------------
@@ -823,7 +926,6 @@ RowEvolutionSeriesToggle.prototype.beforeReplot = function () {
 
 })(jQuery);
 
-
 // ------------------------------------------------------------
 //  LEGEND PLUGIN FOR JQPLOT
 //  Render legend on canvas
@@ -851,7 +953,7 @@ RowEvolutionSeriesToggle.prototype.beforeReplot = function () {
         // legend will be put there
         if (this.plugins.canvasLegend.show) {
             options.gridPadding = {
-                top: 21
+                top: 21, right: 0
             };
         }
 
@@ -878,7 +980,7 @@ RowEvolutionSeriesToggle.prototype.beforeReplot = function () {
 
         var ctx = legend.legendCanvas._ctx;
         ctx.save();
-        ctx.font = '11px ' + (window.piwik.jqplotLabelFont || 'Arial');
+        ctx.font = '11px ' + require('piwik/UI').getLabelFontFamily()
 
         // render series names
         var x = 0;
@@ -921,7 +1023,6 @@ RowEvolutionSeriesToggle.prototype.beforeReplot = function () {
     $.jqplot.postDrawHooks.push($.jqplot.CanvasLegendRenderer.postDraw);
 
 })(jQuery);
-
 
 // ------------------------------------------------------------
 //  SERIES PICKER
@@ -1017,7 +1118,7 @@ RowEvolutionSeriesToggle.prototype.beforeReplot = function () {
         var ctx = legend.pieLegendCanvas._ctx;
         ctx.save();
 
-        ctx.font = '11px ' + (window.piwik.jqplotLabelFont || 'Arial');
+        ctx.font = '11px ' + require('piwik/UI').getLabelFontFamily()
 
         // render labels
         var height = legend.pieLegendCanvas._elem.height();

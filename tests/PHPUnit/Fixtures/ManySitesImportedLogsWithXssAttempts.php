@@ -1,17 +1,17 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link    http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  */
-use Piwik\Common;
+namespace Piwik\Tests\Fixtures;
+
 use Piwik\Date;
 use Piwik\Db;
-use Piwik\FrontController;
 use Piwik\Plugins\Annotations\API as APIAnnotations;
 use Piwik\Plugins\Goals\API as APIGoals;
-use Piwik\WidgetsList;
+use Piwik\Tests\Framework\Fixture;
 
 require_once PIWIK_INCLUDE_PATH . '/tests/PHPUnit/Fixtures/ManySitesImportedLogs.php';
 
@@ -19,7 +19,7 @@ require_once PIWIK_INCLUDE_PATH . '/tests/PHPUnit/Fixtures/ManySitesImportedLogs
  * Imports visits from several log files using the python log importer &
  * adds goals/sites/etc. attempting to create XSS.
  */
-class Test_Piwik_Fixture_ManySitesImportedLogsWithXssAttempts extends Test_Piwik_Fixture_ManySitesImportedLogs
+class ManySitesImportedLogsWithXssAttempts extends ManySitesImportedLogs
 {
     public $now = null;
 
@@ -27,10 +27,12 @@ class Test_Piwik_Fixture_ManySitesImportedLogsWithXssAttempts extends Test_Piwik
     {
         $this->now = Date::factory('now');
     }
-    
+
     public function setUp()
     {
         parent::setUp();
+
+        $this->trackVisitWithActionsXss();
 
         $this->trackVisitsForRealtimeMap(Date::factory('2012-08-11 11:22:33'), $createSeperateVisitors = false);
 
@@ -55,8 +57,13 @@ class Test_Piwik_Fixture_ManySitesImportedLogsWithXssAttempts extends Test_Piwik
             self::createWebsite($this->dateTime, $ecommerce = 0, $siteName = 'Piwik test two',
                 $siteUrl = 'http://example-site-two.com');
         }
+
+        if (!self::siteCreated($idSite = 3)) {
+            self::createWebsite($this->dateTime, $ecommerce = 0, $siteName = 'Piwik test three',
+                $siteUrl = 'http://example-site-three.com');
+        }
     }
-    
+
     public function addAnnotations()
     {
         APIAnnotations::getInstance()->add($this->idSite, '2012-08-09', "Note 1", $starred = 1);
@@ -119,5 +126,19 @@ class Test_Piwik_Fixture_ManySitesImportedLogsWithXssAttempts extends Test_Piwik
         $t->setLatitude(-23.55);
         $t->setLongitude(-46.64);
         self::checkResponse($t->doTrackPageView('incredible title!'));
+    }
+
+    private function trackVisitWithActionsXss()
+    {
+        $urlXss = self::makeXssContent('page url');
+        $titleXss = self::makeXssContent('page title');
+
+        $t = self::getTracker($this->idSite, $this->dateTime, $defaultInit= true);
+        $t->setUrl('http://example.org/' . urlencode($urlXss));
+        self::checkResponse($t->doTrackPageView(urlencode($titleXss)));
+
+        $t->setForceVisitDateTime(Date::factory($this->dateTime)->addHour(1)->getDateTime());
+        $t->setUrl('http://example.org/' . $urlXss);
+        self::checkResponse($t->doTrackPageView($titleXss));
     }
 }

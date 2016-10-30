@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,8 +8,6 @@
  */
 namespace Piwik\Db;
 
-
-use Piwik\Loader;
 use Zend_Db_Table;
 
 /**
@@ -40,9 +38,14 @@ class Adapter
         }
 
         $className = self::getAdapterClassName($adapterName);
-        Loader::loadClass($className);
 
-        $adapter = new $className($dbInfos);
+        // make sure not to pass any references otherwise they will modify $dbInfos
+        $infos = array();
+        foreach ($dbInfos as $key => $val) {
+            $infos[$key] = $val;
+        }
+
+        $adapter   = new $className($infos);
 
         if ($connect) {
             $adapter->getConnection();
@@ -60,10 +63,15 @@ class Adapter
      *
      * @param string $adapterName
      * @return string
+     * @throws \Exception
      */
     private static function getAdapterClassName($adapterName)
     {
-        return 'Piwik\Db\Adapter\\' . str_replace(' ', '\\', ucwords(str_replace(array('_', '\\'), ' ', strtolower($adapterName))));
+        $className = 'Piwik\Db\Adapter\\' . str_replace(' ', '\\', ucwords(str_replace(array('_', '\\'), ' ', strtolower($adapterName))));
+        if (!class_exists($className)) {
+            throw new \Exception(sprintf("Adapter '%s' is not valid. Maybe check that your Piwik configuration files in config/*.ini.php are readable by the webserver.", $adapterName));
+        }
+        return $className;
     }
 
     /**
@@ -110,5 +118,15 @@ class Adapter
         }
 
         return $adapters;
+    }
+
+    /**
+     * Checks if the available adapters are recommended by Piwik or not.
+     * @param string $adapterName
+     * @return bool
+     */
+    public static function isRecommendedAdapter($adapterName)
+    {
+        return strtolower($adapterName) === 'pdo/mysql';
     }
 }

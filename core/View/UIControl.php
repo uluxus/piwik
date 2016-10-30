@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,8 +8,8 @@
  */
 namespace Piwik\View;
 
-use Piwik\View;
 use Exception;
+use Piwik\View;
 
 /**
  * Base type of UI controls.
@@ -58,6 +58,13 @@ class UIControl extends \Piwik\View
      * @var string
      */
     public $cssClass = "";
+
+    /**
+     * HTML Attributes for the root element
+     *
+     * @var string
+     */
+    public $htmlAttributes = array();
 
     /**
      * The inner view that renders the actual control content.
@@ -125,6 +132,7 @@ class UIControl extends \Piwik\View
         $this->templateVars['cssIdentifier'] = $this->cssIdentifier;
         $this->templateVars['cssClass'] = $this->cssClass;
         $this->templateVars['jsClass'] = $this->jsClass;
+        $this->templateVars['htmlAttributes'] = $this->htmlAttributes;
         $this->templateVars['jsNamespace'] = $this->jsNamespace;
         $this->templateVars['implOverride'] = $override;
 
@@ -136,7 +144,6 @@ class UIControl extends \Piwik\View
         }
 
         $this->templateVars['clientSideParameters'] = array();
-        $clientSideParameters = $this->getClientSideParameters();
         foreach ($this->getClientSideParameters() as $name) {
             $this->templateVars['clientSideParameters'][$name] = $innerTemplateVars[$name];
         }

@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,161 +8,132 @@
  */
 namespace Piwik\Plugins\CustomVariables;
 
-use Piwik\ArchiveProcessor;
-use Piwik\Menu\MenuMain;
-use Piwik\Piwik;
-use Piwik\Plugin\ViewDataTable;
-use Piwik\Tracker;
-use Piwik\WidgetsList;
+use Piwik\Tracker\Cache;
 
-/**
- */
 class CustomVariables extends \Piwik\Plugin
 {
-    public function getInformation()
-    {
-        $info = parent::getInformation();
-        $info['description'] .= ' <br/>Required to use <a href="http://piwik.org/docs/ecommerce-analytics/">Ecommerce Analytics</a> feature!';
-        return $info;
-    }
+    const MAX_NUM_CUSTOMVARS_CACHEKEY = 'CustomVariables.MaxNumCustomVariables';
 
     /**
-     * @see Piwik\Plugin::getListHooksRegistered
+     * @see \Piwik\Plugin::registerEvents
      */
-    public function getListHooksRegistered()
+    public function registerEvents()
     {
-        $hooks = array(
-            'WidgetsList.addWidgets'          => 'addWidgets',
-            'Menu.Reporting.addItems'         => 'addMenus',
-            'Goals.getReportsWithGoalMetrics' => 'getReportsWithGoalMetrics',
-            'API.getReportMetadata'           => 'getReportMetadata',
-            'API.getSegmentDimensionMetadata' => 'getSegmentsMetadata',
-            'ViewDataTable.configure'         => 'configureViewDataTable',
-        );
-        return $hooks;
-    }
-
-    public function addWidgets()
-    {
-        WidgetsList::add('General_Visitors', 'CustomVariables_CustomVariables', 'CustomVariables', 'getCustomVariables');
-    }
-
-    public function addMenus()
-    {
-        MenuMain::getInstance()->add('General_Visitors', 'CustomVariables_CustomVariables', array('module' => 'CustomVariables', 'action' => 'index'), $display = true, $order = 50);
-    }
-
-    /**
-     * Returns metadata for available reports
-     */
-    public function getReportMetadata(&$reports)
-    {
-        $documentation = Piwik::translate('CustomVariables_CustomVariablesReportDocumentation',
-            array('<br />', '<a href="http://piwik.org/docs/custom-variables/" target="_blank">', '</a>'));
-
-        $reports[] = array('category'              => Piwik::translate('General_Visitors'),
-                           'name'                  => Piwik::translate('CustomVariables_CustomVariables'),
-                           'module'                => 'CustomVariables',
-                           'action'                => 'getCustomVariables',
-                           'actionToLoadSubTables' => 'getCustomVariablesValuesFromNameId',
-                           'dimension'             => Piwik::translate('CustomVariables_ColumnCustomVariableName'),
-                           'documentation'         => $documentation,
-                           'order'                 => 10);
-
-        $reports[] = array('category'         => Piwik::translate('General_Visitors'),
-                           'name'             => Piwik::translate('CustomVariables_CustomVariables'),
-                           'module'           => 'CustomVariables',
-                           'action'           => 'getCustomVariablesValuesFromNameId',
-                           'dimension'        => Piwik::translate('CustomVariables_ColumnCustomVariableValue'),
-                           'documentation'    => $documentation,
-                           'isSubtableReport' => true,
-                           'order'            => 15);
-    }
-
-    public function getSegmentsMetadata(&$segments)
-    {
-        for ($i = 1; $i <= Tracker::MAX_CUSTOM_VARIABLES; $i++) {
-            $segments[] = array(
-                'type'       => 'dimension',
-                'category'   => 'CustomVariables_CustomVariables',
-                'name'       => Piwik::translate('CustomVariables_ColumnCustomVariableName') . ' ' . $i
-                    . ' (' . Piwik::translate('CustomVariables_ScopeVisit') . ')',
-                'segment'    => 'customVariableName' . $i,
-                'sqlSegment' => 'log_visit.custom_var_k' . $i,
-            );
-            $segments[] = array(
-                'type'       => 'dimension',
-                'category'   => 'CustomVariables_CustomVariables',
-                'name'       => Piwik::translate('CustomVariables_ColumnCustomVariableValue') . ' ' . $i
-                    . ' (' . Piwik::translate('CustomVariables_ScopeVisit') . ')',
-                'segment'    => 'customVariableValue' . $i,
-                'sqlSegment' => 'log_visit.custom_var_v' . $i,
-            );
-            $segments[] = array(
-                'type'       => 'dimension',
-                'category'   => 'CustomVariables_CustomVariables',
-                'name'       => Piwik::translate('CustomVariables_ColumnCustomVariableName') . ' ' . $i
-                    . ' (' . Piwik::translate('CustomVariables_ScopePage') . ')',
-                'segment'    => 'customVariablePageName' . $i,
-                'sqlSegment' => 'log_link_visit_action.custom_var_k' . $i,
-            );
-            $segments[] = array(
-                'type'       => 'dimension',
-                'category'   => 'CustomVariables_CustomVariables',
-                'name'       => Piwik::translate('CustomVariables_ColumnCustomVariableValue') . ' ' . $i
-                    . ' (' . Piwik::translate('CustomVariables_ScopePage') . ')',
-                'segment'    => 'customVariablePageValue' . $i,
-                'sqlSegment' => 'log_link_visit_action.custom_var_v' . $i,
-            );
-        }
-    }
-
-    /**
-     * Adds Goal dimensions, so that the dimensions are displayed in the UI Goal Overview page
-     */
-    public function getReportsWithGoalMetrics(&$dimensions)
-    {
-        $dimensions[] = array('category' => Piwik::translate('General_Visit'),
-                              'name'     => Piwik::translate('CustomVariables_CustomVariables'),
-                              'module'   => 'CustomVariables',
-                              'action'   => 'getCustomVariables',
+        return array(
+            'Live.getAllVisitorDetails'       => 'extendVisitorDetails',
+            'AssetManager.getJavaScriptFiles' => 'getJsFiles',
+            'Translate.getClientSideTranslationKeys' => 'getClientSideTranslationKeys',
+            'AssetManager.getStylesheetFiles'  => 'getStylesheetFiles',
         );
     }
 
-    public function configureViewDataTable(ViewDataTable $view)
+    public function install()
     {
-        switch ($view->requestConfig->apiMethodToRequestDataTable) {
-            case 'CustomVariables.getCustomVariables':
-                $this->configureViewForGetCustomVariables($view);
-                break;
-            case 'CustomVariables.getCustomVariablesValuesFromNameId':
-                $this->configureViewForGetCustomVariablesValuesFromNameId($view);
-                break;
+        Model::install();
+    }
+
+    public function uninstall()
+    {
+        Model::uninstall();
+    }
+
+    public function extendVisitorDetails(&$visitor, $details)
+    {
+        $customVariables = array();
+
+        $maxCustomVariables = self::getNumUsableCustomVariables();
+
+        for ($i = 1; $i <= $maxCustomVariables; $i++) {
+            if (!empty($details['custom_var_k' . $i])) {
+                $customVariables[$i] = array(
+                    'customVariableName' .  $i => $details['custom_var_k' . $i],
+                    'customVariableValue' . $i => $details['custom_var_v' . $i],
+                );
+            }
         }
+
+        $visitor['customVariables'] = $customVariables;
     }
 
-    private function configureViewForGetCustomVariables(ViewDataTable $view)
+    /**
+     * There are also some hardcoded places in JavaScript
+     * @return int
+     */
+    public static function getMaxLengthCustomVariables()
     {
-        $footerMessage = Piwik::translate('CustomVariables_TrackingHelp',
-            array('<a target="_blank" href="http://piwik.org/docs/custom-variables/">', '</a>'));
-
-        $view->config->columns_to_display = array('label', 'nb_actions', 'nb_visits');
-        $view->config->show_goals = true;
-        $view->config->subtable_controller_action = 'getCustomVariablesValuesFromNameId';
-        $view->config->show_footer_message = $footerMessage;
-        $view->config->addTranslation('label', Piwik::translate('CustomVariables_ColumnCustomVariableName'));
-        $view->requestConfig->filter_sort_column = 'nb_actions';
-        $view->requestConfig->filter_sort_order  = 'desc';
+        return 200;
     }
 
-    private function configureViewForGetCustomVariablesValuesFromNameId(ViewDataTable $view)
+    /**
+     * Returns the number of available custom variables that can be used.
+     *
+     * "Can be used" is identifed by the minimum number of available custom variables across all relevant tables. Eg
+     * if there are 6 custom variables installed in log_visit but only 5 in log_conversion, we consider only 5 custom
+     * variables as usable.
+     * @return int
+     */
+    public static function getNumUsableCustomVariables()
     {
-        $view->config->columns_to_display = array('label', 'nb_actions', 'nb_visits');
-        $view->config->show_goals  = true;
-        $view->config->show_search = false;
-        $view->config->show_exclude_low_population = false;
-        $view->config->addTranslation('label', Piwik::translate('CustomVariables_ColumnCustomVariableValue'));
-        $view->requestConfig->filter_sort_column = 'nb_actions';
-        $view->requestConfig->filter_sort_order  = 'desc';
+        $cache    = Cache::getCacheGeneral();
+        $cacheKey = self::MAX_NUM_CUSTOMVARS_CACHEKEY;
+
+        if (!array_key_exists($cacheKey, $cache)) {
+
+            $minCustomVar = null;
+
+            foreach (Model::getScopes() as $scope) {
+                $model = new Model($scope);
+                $highestIndex = $model->getHighestCustomVarIndex();
+
+                if (!isset($minCustomVar)) {
+                    $minCustomVar = $highestIndex;
+                }
+
+                if ($highestIndex < $minCustomVar) {
+                    $minCustomVar = $highestIndex;
+                }
+            }
+
+            if (!isset($minCustomVar)) {
+                $minCustomVar = 0;
+            }
+
+            $cache[$cacheKey] = $minCustomVar;
+            Cache::setCacheGeneral($cache);
+        }
+
+        return $cache[$cacheKey];
     }
+
+    public function getClientSideTranslationKeys(&$translationKeys)
+    {
+        $translationKeys[] = 'CustomVariables_CustomVariables';
+        $translationKeys[] = 'CustomVariables_ManageDescription';
+        $translationKeys[] = 'CustomVariables_ScopeX';
+        $translationKeys[] = 'CustomVariables_Index';
+        $translationKeys[] = 'CustomVariables_Usages';
+        $translationKeys[] = 'CustomVariables_Unused';
+        $translationKeys[] = 'CustomVariables_CreateNewSlot';
+        $translationKeys[] = 'CustomVariables_UsageDetails';
+        $translationKeys[] = 'CustomVariables_CurrentAvailableCustomVariables';
+        $translationKeys[] = 'CustomVariables_ToCreateCustomVarExecute';
+        $translationKeys[] = 'CustomVariables_CreatingCustomVariableTakesTime';
+        $translationKeys[] = 'CustomVariables_SlotsReportIsGeneratedOverTime';
+        $translationKeys[] = 'General_Loading';
+        $translationKeys[] = 'General_TrackingScopeVisit';
+        $translationKeys[] = 'General_TrackingScopePage';
+    }
+
+    public function getStylesheetFiles(&$stylesheets)
+    {
+        $stylesheets[] = "plugins/CustomVariables/angularjs/manage-custom-vars/manage-custom-vars.directive.less";
+    }
+
+    public function getJsFiles(&$jsFiles)
+    {
+        $jsFiles[] = "plugins/CustomVariables/angularjs/manage-custom-vars/manage-custom-vars.model.js";
+        $jsFiles[] = "plugins/CustomVariables/angularjs/manage-custom-vars/manage-custom-vars.controller.js";
+        $jsFiles[] = "plugins/CustomVariables/angularjs/manage-custom-vars/manage-custom-vars.directive.js";
+    }
+
 }

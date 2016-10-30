@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -14,7 +14,7 @@ use Piwik\SettingsServer;
 /**
  * There are three different states
  * - PID file exists with empty content: Process is created but not started
- * - PID file exists with the actual process PID as content: Process is runnning
+ * - PID file exists with the actual process PID as content: Process is running
  * - PID file does not exist: Process is marked as finished
  *
  * Class Process
@@ -24,6 +24,7 @@ class Process
     private $pidFile = '';
     private $timeCreation = null;
     private $isSupported = null;
+    private $pid = null;
 
     public function __construct($pid)
     {
@@ -32,13 +33,19 @@ class Process
         }
 
         $pidDir = CliMulti::getTmpPath();
-        Filesystem::mkdir($pidDir, true);
+        Filesystem::mkdir($pidDir);
 
         $this->isSupported  = self::isSupported();
         $this->pidFile      = $pidDir . '/' . $pid . '.pid';
         $this->timeCreation = time();
+        $this->pid = $pid;
 
         $this->markAsNotStarted();
+    }
+
+    public function getPid()
+    {
+        return $this->pid;
     }
 
     private function markAsNotStarted()
@@ -97,6 +104,11 @@ class Process
             return false;
         }
 
+        if (!$this->pidFileSizeIsNormal()) {
+            $this->finishProcess();
+            return false;
+        }
+
         if ($this->isProcessStillRunning($content)) {
             return true;
         }
@@ -106,6 +118,13 @@ class Process
         }
 
         return false;
+    }
+
+    private function pidFileSizeIsNormal()
+    {
+        $size = Filesystem::getFileSize($this->pidFile);
+
+        return $size !== null && $size < 500;
     }
 
     public function finishProcess()
@@ -125,7 +144,7 @@ class Process
         }
 
         $lockedPID   = trim($content);
-        $runningPIDs = explode("\n", trim( `ps -e | awk '{print $1}'` ));
+        $runningPIDs = self::getRunningProcesses();
 
         return !empty($lockedPID) && in_array($lockedPID, $runningPIDs);
     }
@@ -146,26 +165,54 @@ class Process
             return false;
         }
 
-        if(!self::shellExecFunctionExists()) {
+        if (self::shellExecFunctionIsDisabled()) {
             return false;
         }
-        if (static::commandExists('ps') && self::returnsSuccessCode('ps') && self::commandExists('awk')) {
+
+        if (self::isSystemNotSupported()) {
+            return false;
+        }
+
+        if (!self::commandExists('ps') || !self::returnsSuccessCode('ps') || !self::commandExists('awk')) {
+            return false;
+        }
+
+        if (count(self::getRunningProcesses()) > 0) {
             return true;
         }
 
+        if (!self::isProcFSMounted()) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function isSystemNotSupported()
+    {
+        $uname = @shell_exec('uname -a 2> /dev/null');
+
+        if (empty($uname)) {
+            $uname = php_uname();
+        }
+
+        if (strpos($uname, 'synology') !== false) {
+            return true;
+        }
         return false;
     }
 
-    private static function shellExecFunctionExists()
+    private static function shellExecFunctionIsDisabled()
     {
         $command = 'shell_exec';
         $disabled = explode(',', ini_get('disable_functions'));
-        return !in_array($command, $disabled);
+        $disabled = array_map('trim', $disabled);
+        return in_array($command, $disabled)  || !function_exists($command);
     }
 
     private static function returnsSuccessCode($command)
     {
-        $exec = $command . ' > /dev/null 2>&1 & echo $?';
+        $exec = $command . ' > /dev/null 2>&1; echo $?';
         $returnCode = shell_exec($exec);
         $returnCode = trim($returnCode);
         return 0 == (int) $returnCode;
@@ -173,8 +220,38 @@ class Process
 
     private static function commandExists($command)
     {
-        $result = shell_exec('which ' . escapeshellarg($command));
+        $result = @shell_exec('which ' . escapeshellarg($command) . ' 2> /dev/null');
 
         return !empty($result);
     }
+
+    /**
+     * ps -e requires /proc
+     * @return bool
+     */
+    private static function isProcFSMounted()
+    {
+        if (is_resource(@fopen('/proc', 'r'))) {
+            return true;
+        }
+        // Testing if /proc is a resource with @fopen fails on systems with open_basedir set.
+        // by using stat we not only test the existence of /proc but also confirm it's a 'proc' filesystem
+        $type = @shell_exec('stat -f -c "%T" /proc 2>/dev/null');
+        return strpos($type, 'proc') === 0;
+    }
+
+    /**
+     * @return int[] The ids of the currently running processes
+     */
+     public static function getRunningProcesses()
+     {
+         $ids = explode("\n", trim(`ps ex 2>/dev/null | awk '{print $1}' 2>/dev/null`));
+
+         $ids = array_map('intval', $ids);
+         $ids = array_filter($ids, function ($id) {
+            return $id > 0;
+        });
+
+         return $ids;
+     }
 }

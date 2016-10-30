@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -16,15 +16,15 @@ use Piwik\DataTable\BaseFilter;
  * whitelist or both.
  *
  * This filter is used to handle the **hideColumn** and **showColumn** query parameters.
- * 
+ *
  * **Basic usage example**
- * 
+ *
  *     $columnsToRemove = array('nb_hits', 'nb_pageviews');
  *     $dataTable->filter('ColumnDelete', array($columnsToRemove));
- * 
+ *
  *     $columnsToKeep = array('nb_visits');
  *     $dataTable->filter('ColumnDelete', array(array(), $columnsToKeep));
- * 
+ *
  * @api
  */
 class ColumnDelete extends BaseFilter
@@ -91,6 +91,7 @@ class ColumnDelete extends BaseFilter
      * See {@link ColumnDelete}.
      *
      * @param DataTable $table
+     * @return DataTable
      */
     public function filter($table)
     {
@@ -100,26 +101,32 @@ class ColumnDelete extends BaseFilter
 
         // remove columns specified in $this->columnsToRemove
         if (!empty($this->columnsToRemove)) {
-            foreach ($table->getRows() as $row) {
+            foreach ($table as $index => $row) {
                 foreach ($this->columnsToRemove as $column) {
+                    if (!array_key_exists($column, $row)) {
+                        continue;
+                    }
+                    
                     if ($this->deleteIfZeroOnly) {
-                        $value = $row->getColumn($column);
+                        $value = $row[$column];
                         if ($value === false || !empty($value)) {
                             continue;
                         }
                     }
-                    $row->deleteColumn($column);
+
+                    unset($table[$index][$column]);
                 }
             }
 
             $recurse = true;
+
         }
 
         // remove columns not specified in $columnsToKeep
         if (!empty($this->columnsToKeep)) {
-            foreach ($table->getRows() as $row) {
-                foreach ($row->getColumns() as $name => $value) {
-
+            foreach ($table as $index => $row) {
+                $columnsToDelete = array();
+                foreach ($row as $name => $value) {
                     $keep = false;
                     // @see self::APPEND_TO_COLUMN_NAME_TO_KEEP
                     foreach ($this->columnsToKeep as $nameKeep => $true) {
@@ -132,8 +139,13 @@ class ColumnDelete extends BaseFilter
                         && $name != 'label' // label cannot be removed via whitelisting
                         && !isset($this->columnsToKeep[$name])
                     ) {
-                        $row->deleteColumn($name);
+                        // we cannot remove row directly to prevent notice "ArrayIterator::next(): Array was modified
+                        // outside object and internal position is no longer valid in /var/www..."
+                        $columnsToDelete[] = $name;
                     }
+                }
+                foreach ($columnsToDelete as $columnToDelete) {
+                    unset($table[$index][$columnToDelete]);
                 }
             }
 
@@ -141,10 +153,12 @@ class ColumnDelete extends BaseFilter
         }
 
         // recurse
-        if ($recurse) {
-            foreach ($table->getRows() as $row) {
+        if ($recurse && !is_array($table)) {
+            foreach ($table as $row) {
                 $this->filterSubTable($row);
             }
         }
+
+        return $table;
     }
 }

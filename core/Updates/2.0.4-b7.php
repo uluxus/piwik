@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -9,27 +9,19 @@
 
 namespace Piwik\Updates;
 
-use Piwik\Common;
-use Piwik\Date;
-use Piwik\Db;
 use Piwik\Option;
-use Piwik\Plugins\UsersManager\API as UsersManagerApi;
 use Piwik\Plugins\MobileMessaging\MobileMessaging;
-use Piwik\Updater;
-use Piwik\Config;
+use Piwik\Plugins\UsersManager\API as UsersManagerApi;
 use Piwik\UpdaterErrorException;
 use Piwik\Updates;
+use Piwik\Updater;
 
 /**
  */
 class Updates_2_0_4_b7 extends Updates
 {
-    static function getSql()
-    {
-        return array();
-    }
 
-    static function update()
+    public function doUpdate(Updater $updater)
     {
         try {
             self::migrateExistingMobileMessagingOptions();

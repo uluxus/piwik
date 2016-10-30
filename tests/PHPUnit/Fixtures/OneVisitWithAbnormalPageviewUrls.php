@@ -1,17 +1,20 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  */
+namespace Piwik\Tests\Fixtures;
+
 use Piwik\Date;
+use Piwik\Tests\Framework\Fixture;
 
 /**
  * Adds one site and tracks one visit w/ pageview URLs that are not normalized.
  * These URLs use different protocols and a mix of lowercase & uppercase letters.
  */
-class Test_Piwik_Fixture_OneVisitWithAbnormalPageviewUrls extends Fixture
+class OneVisitWithAbnormalPageviewUrls extends Fixture
 {
     public $dateTime = '2010-03-06 11:22:33';
     public $idSite = 1;
@@ -38,7 +41,7 @@ class Test_Piwik_Fixture_OneVisitWithAbnormalPageviewUrls extends Fixture
     {
         $dateTime = $this->dateTime;
         $idSite = $this->idSite;
-        $t = self::getTracker($idSite, $dateTime, $defaultInit = true, $useThirdPartyCookie = 1);
+        $t = self::getTracker($idSite, $dateTime, $defaultInit = true);
 
         $t->setUrlReferrer('http://www.google.com/search?q=piwik');
         $t->setUrl('http://example.org/foo/bar.html');
@@ -60,8 +63,18 @@ class Test_Piwik_Fixture_OneVisitWithAbnormalPageviewUrls extends Fixture
         $t->setForceVisitDateTime(Date::factory($dateTime)->addHour(0.5)->getDatetime());
         self::checkResponse($t->doTrackPageView('incredible.title/'));
 
+        $t->setUrl('http://www.my.url/ꟽ碌㒧䊶亄ﶆⅅขκもኸόσशμεޖृ');
+        $t->setForceVisitDateTime(Date::factory($dateTime)->addHour(0.7)->getDatetime());
+        self::checkResponse($t->doTrackPageView('Valid URL, although strange looking'));
+
+        $t->setUrl('https://make.wordpress.org/?emoji=😎l&param=test');
+        $t->setForceVisitDateTime(Date::factory($dateTime)->addHour(0.8)->getDatetime());
+        self::checkResponse($t->doTrackPageView('Emoji here: %F0%9F%98%8E'));
+
+        // this pageview should be last
         $t->setUrl('https://example.org/foo/bar4.html');
         $t->setForceVisitDateTime(Date::factory($dateTime)->addHour(0.6)->getDatetime());
         self::checkResponse($t->doTrackPageView('incredible.title/'));
+
     }
 }

@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,11 +8,16 @@
  */
 namespace Piwik\Plugins\SegmentEditor;
 
+use Piwik\API\Request;
+use Piwik\ArchiveProcessor\Rules;
 use Piwik\Common;
 use Piwik\Config;
+use Piwik\Container\StaticContainer;
 use Piwik\Piwik;
 use Piwik\Plugins\API\API as APIMetadata;
+use Piwik\Plugins\UsersManager\API AS UsersManagerAPI;
 use Piwik\View\UIControl;
+use Piwik\Plugins\SegmentEditor\API as SegmentEditorAPI;
 
 /**
  * Generates the HTML for the segment selector control (which includes the segment editor).
@@ -24,32 +29,37 @@ class SegmentSelectorControl extends UIControl
     /**
      * Constructor.
      */
-    public function __construct()
+    public function __construct($idSite = false)
     {
         parent::__construct();
 
         $this->jsClass = "SegmentSelectorControl";
         $this->cssIdentifier = "segmentEditorPanel";
-        $this->cssClass = "piwikTopControl";
+        $this->cssClass = "piwikTopControl borderedControl piwikSelector";
 
-        $this->idSite = Common::getRequestVar('idSite', false, 'int');
+        $this->idSite = $idSite ?: Common::getRequestVar('idSite', false, 'int');
 
         $this->selectedSegment = Common::getRequestVar('segment', false, 'string');
 
+        $formatter = StaticContainer::get('Piwik\Plugins\SegmentEditor\SegmentFormatter');
+        $this->segmentDescription = $formatter->getHumanReadable(Request::getRawSegmentFromRequest(), $this->idSite);
+
+        $this->isAddingSegmentsForAllWebsitesEnabled = SegmentEditor::isAddingSegmentsForAllWebsitesEnabled();
+
         $segments = APIMetadata::getInstance()->getSegmentsMetadata($this->idSite);
 
-        $segmentsByCategory = $customVariablesSegments = array();
+        $visitTitle = Piwik::translate('General_Visit');
+        $segmentsByCategory = array();
         foreach ($segments as $segment) {
-            if ($segment['category'] == Piwik::translate('General_Visit')
+            if ($segment['category'] == $visitTitle
                 && ($segment['type'] == 'metric' && $segment['segment'] != 'visitIp')
             ) {
                 $metricsLabel = Piwik::translate('General_Metrics');
-                $metricsLabel[0] = strtolower($metricsLabel[0]);
+                $metricsLabel[0] = Common::mb_strtolower($metricsLabel[0]);
                 $segment['category'] .= ' (' . $metricsLabel . ')';
             }
             $segmentsByCategory[$segment['category']][] = $segment;
         }
-        uksort($segmentsByCategory, array($this, 'sortSegmentCategories'));
 
         $this->createRealTimeSegmentsIsEnabled = Config::getInstance()->General['enable_create_realtime_segments'];
         $this->segmentsByCategory   = $segmentsByCategory;
@@ -67,8 +77,11 @@ class SegmentSelectorControl extends UIControl
             }
         }
 
-        $this->authorizedToCreateSegments = !Piwik::isUserIsAnonymous();
+        $this->authorizedToCreateSegments = SegmentEditorAPI::getInstance()->isUserCanAddNewSegment($this->idSite);
+        $this->isUserAnonymous = Piwik::isUserIsAnonymous();
         $this->segmentTranslations = $this->getTranslations();
+        $this->segmentProcessedOnRequest = Rules::isBrowserArchivingAvailableForSegments();
+        $this->hideSegmentDefinitionChangeMessage = UsersManagerAPI::getInstance()->getUserPreference(Piwik::getCurrentUserLogin(), 'hideSegmentDefinitionChangeMessage');
     }
 
     public function getClientSideProperties()
@@ -76,7 +89,8 @@ class SegmentSelectorControl extends UIControl
         return array('availableSegments',
                      'segmentTranslations',
                      'isSegmentNotAppliedBecauseBrowserArchivingIsDisabled',
-                     'selectedSegment');
+                     'selectedSegment',
+                     'authorizedToCreateSegments');
     }
 
     private function wouldApplySegment($savedSegment)
@@ -90,15 +104,6 @@ class SegmentSelectorControl extends UIControl
         return (bool) $savedSegment['auto_archive'];
     }
 
-    public function sortSegmentCategories($a, $b)
-    {
-        // Custom Variables last
-        if ($a == Piwik::translate('CustomVariables_CustomVariables')) {
-            return 1;
-        }
-        return 0;
-    }
-
     private function getTranslations()
     {
         $translationKeys = array(
@@ -110,6 +115,8 @@ class SegmentSelectorControl extends UIControl
             'General_OperationGreaterThan',
             'General_OperationContains',
             'General_OperationDoesNotContain',
+            'General_OperationStartsWith',
+            'General_OperationEndsWith',
             'General_OperationIs',
             'General_OperationIsNot',
             'General_OperationContains',

@@ -1,11 +1,21 @@
 <?php
+/**
+ * Piwik - free/libre analytics platform
+ *
+ * @link http://piwik.org
+ * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
+ *
+ */
 namespace Piwik\ReportRenderer;
 
+use Piwik\DataTable\DataTableInterface;
+use Piwik\DataTable\Renderer\Csv as CsvDataTableRenderer;
 use Piwik\Piwik;
 use Piwik\ReportRenderer;
-use Piwik\DataTable\Renderer\Csv as CsvDataTableRenderer;
-use Piwik\DataTable\DataTableInterface;
 
+/**
+ * CSV report renderer
+ */
 class Csv extends ReportRenderer
 {
     /**
@@ -105,7 +115,7 @@ class Csv extends ReportRenderer
         );
 
         $reportData = $csvRenderer->render($processedReport);
-        if(empty($reportData)) {
+        if (empty($reportData)) {
             $reportData = Piwik::translate('CoreHome_ThereIsNoDataForThisReport');
         }
 
@@ -131,6 +141,7 @@ class Csv extends ReportRenderer
     protected function getRenderer(DataTableInterface $table, $uniqueId)
     {
         $csvRenderer = new CsvDataTableRenderer();
+        $csvRenderer->setIdSite($this->idSite);
         $csvRenderer->setTable($table);
         $csvRenderer->setConvertToUnicode(false);
         $csvRenderer->setApiMethod(
@@ -147,5 +158,18 @@ class Csv extends ReportRenderer
     protected function getApiMethodNameFromUniqueId($uniqueId)
     {
         return str_replace("_", ".", $uniqueId);
+    }
+
+    /**
+     * Get report attachments, ex. graph images
+     *
+     * @param $report
+     * @param $processedReports
+     * @param $prettyDate
+     * @return array
+     */
+    public function getAttachments($report, $processedReports, $prettyDate)
+    {
+        return array();
     }
 }

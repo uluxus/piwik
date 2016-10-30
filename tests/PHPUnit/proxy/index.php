@@ -1,22 +1,15 @@
 <?php
 /**
  * Proxy to index.php, but will use the Test DB
- * Used by tests/PHPUnit/Integration/ImportLogsTest.php and tests/PHPUnit/Integration/UITest.php
+ * Used by tests/PHPUnit/System/ImportLogsTest.php and tests/PHPUnit/System/UITest.php
  */
 
-use Piwik\Tracker\Cache;
+use Piwik\Application\Environment;
+use Piwik\Tests\Framework\TestingEnvironmentManipulator;
+use Piwik\Tests\Framework\TestingEnvironmentVariables;
 
 require realpath(dirname(__FILE__)) . "/includes.php";
 
-// Wrapping the request inside ob_start() calls to ensure that the Test
-// calling us waits for the full request to process before unblocking
-ob_start();
+Environment::setGlobalEnvironmentManipulator(new TestingEnvironmentManipulator(new TestingEnvironmentVariables()));
 
-Piwik_TestingEnvironment::addHooks();
-
-\Piwik\Profiler::setupProfilerXHProf();
-
-// Disable index.php dispatch since we do it manually below
 include PIWIK_INCLUDE_PATH . '/index.php';
-
-ob_flush();

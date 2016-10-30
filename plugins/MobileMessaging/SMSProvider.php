@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,13 +8,16 @@
  */
 namespace Piwik\Plugins\MobileMessaging;
 
-use Exception;
-use Piwik\Loader;
+use Piwik\Container\StaticContainer;
+use Piwik\Plugin;
 use Piwik\Piwik;
 
 /**
- * The SMSProvider abstract class is used as a base class for SMS provider implementations.
+ * The SMSProvider abstract class is used as a base class for SMS provider implementations. To create your own custom
+ * SMSProvider extend this class and implement the methods to send text messages. The class needs to be placed in a
+ * `SMSProvider` directory of your plugin.
  *
+ * @api
  */
 abstract class SMSProvider
 {
@@ -23,43 +26,102 @@ abstract class SMSProvider
     const MAX_UCS2_CHARS_IN_ONE_UNIQUE_SMS = 70;
     const MAX_UCS2_CHARS_IN_ONE_CONCATENATED_SMS = 67;
 
-    static public $availableSMSProviders = array(
-        'Clockwork' => 'You can use <a target="_blank" href="?module=Proxy&action=redirect&url=http://www.clockworksms.com/platforms/piwik/"><img src="plugins/MobileMessaging/images/Clockwork.png"/></a> to send SMS Reports from Piwik.<br/>
-			<ul>
-			<li> First, <a target="_blank" href="?module=Proxy&action=redirect&url=http://www.clockworksms.com/platforms/piwik/">get an API Key from Clockwork</a> (Signup is free!)
-			</li><li> Enter your Clockwork API Key on this page. </li>
-			</ul>
-			<br/><em>About Clockwork: </em><ul>
-			<li>Clockwork gives you fast, reliable high quality worldwide SMS delivery, over 450 networks in every corner of the globe.
-			</li><li>Cost per SMS message is around ~0.08USD (0.06EUR).
-			</li><li>Most countries and networks are supported but we suggest you check the latest position on their coverage map <a target="_blank" href="?module=Proxy&action=redirect&url=http://www.clockworksms.com/sms-coverage/">here</a>.
-			</li>
-			</ul>
-			',
-    );
+    /**
+     * Get the ID of the SMS Provider. Eg 'Clockwork' or 'FreeMobile'
+     * @return string
+     */
+    abstract public function getId();
 
     /**
-     * Return the SMSProvider associated to the provider name $providerName
+     * Get a description about the SMS Provider. For example who the SMS Provider is, instructions how the API Key
+     * needs to be set, and more. You may return HTML here for better formatting.
      *
-     * @throws Exception If the provider is unknown
-     * @param string $providerName
-     * @return \Piwik\Plugins\MobileMessaging\SMSProvider
+     * @return string
      */
-    static public function factory($providerName)
-    {
-        $className = __NAMESPACE__ . '\\SMSProvider\\' . $providerName;
+    abstract public function getDescription();
 
-        try {
-            Loader::loadClass($className);
-            return new $className;
-        } catch (Exception $e) {
-            throw new Exception(
-                Piwik::translate(
-                    'MobileMessaging_Exception_UnknownProvider',
-                    array($providerName, implode(', ', array_keys(self::$availableSMSProviders)))
-                )
-            );
+    /**
+     * Verify the SMS API credential.
+     *
+     * @param string $apiKey API Key
+     * @return bool true if SMS API Key is valid, false otherwise
+     */
+    abstract public function verifyCredential($apiKey);
+
+    /**
+     * Get the amount of remaining credits.
+     *
+     * @param string $apiKey API Key
+     * @return string remaining credits
+     */
+    abstract public function getCreditLeft($apiKey);
+
+    /**
+     * Actually send the given text message. This method should only send the text message, it should not trigger
+     * any notifications etc.
+     *
+     * @param string $apiKey
+     * @param string $smsText
+     * @param string $phoneNumber
+     * @param string $from
+     * @return bool true
+     */
+    abstract public function sendSMS($apiKey, $smsText, $phoneNumber, $from);
+
+    /**
+     * Defines whether the SMS Provider is available. If a certain provider should be used only be a limited
+     * range of users you can restrict the provider here. For example there is a Development SMS Provider that is only
+     * available when the development is actually enabled. You could also create a SMS Provider that is only available
+     * to Super Users etc. Usually this method does not have to be implemented by a SMS Provider.
+     *
+     * @return bool
+     */
+    public function isAvailable()
+    {
+        return true;
+    }
+
+    /**
+     * @param string $provider The name of the string
+     * @return SMSProvider
+     * @throws \Exception
+     * @ignore
+     */
+    public static function factory($provider)
+    {
+        $providers = self::findAvailableSmsProviders();
+
+        if (!array_key_exists($provider, $providers)) {
+            throw new \Exception(Piwik::translate('MobileMessaging_Exception_UnknownProvider',
+                array($provider, implode(', ', array_keys($providers)))
+            ));
         }
+
+        return $providers[$provider];
+    }
+
+    /**
+     * Returns all available SMS Providers
+     *
+     * @return SMSProvider[]
+     * @ignore
+     */
+    public static function findAvailableSmsProviders()
+    {
+        /** @var SMSProvider[] $smsProviders */
+        $smsProviders = Plugin\Manager::getInstance()->findMultipleComponents('SMSProvider', 'Piwik\Plugins\MobileMessaging\SMSProvider');
+
+        $providers = array();
+
+        foreach ($smsProviders as $provider) {
+            /** @var SMSProvider $provider */
+            $provider = StaticContainer::get($provider);
+            if ($provider->isAvailable()) {
+                $providers[$provider->getId()] = $provider;
+            }
+        }
+
+        return $providers;
     }
 
     /**
@@ -67,8 +129,9 @@ abstract class SMSProvider
      *
      * @param string $string
      * @return bool true if $string contains UCS2 characters
+     * @ignore
      */
-    static public function containsUCS2Characters($string)
+    public static function containsUCS2Characters($string)
     {
         $GSMCharsetAsString = implode(array_keys(GSMCharset::$GSMCharset));
 
@@ -89,8 +152,9 @@ abstract class SMSProvider
      * @param int $maximumNumberOfConcatenatedSMS
      * @param string $appendedString
      * @return string original $string or truncated $string appended with $appendedString
+     * @ignore
      */
-    static public function truncate($string, $maximumNumberOfConcatenatedSMS, $appendedString = 'MobileMessaging_SMS_Content_Too_Long')
+    public static function truncate($string, $maximumNumberOfConcatenatedSMS, $appendedString = 'MobileMessaging_SMS_Content_Too_Long')
     {
         $appendedString = Piwik::translate($appendedString);
 
@@ -117,12 +181,12 @@ abstract class SMSProvider
         return preg_replace('/' . preg_quote($subStrToTruncate, '/') . '$/', $appendedString, $string);
     }
 
-    static private function mb_str_split($string)
+    private static function mb_str_split($string)
     {
         return preg_split('//u', $string, -1, PREG_SPLIT_NO_EMPTY);
     }
 
-    static private function sizeOfSMSContent($smsContent, $containsUCS2Chars)
+    private static function sizeOfSMSContent($smsContent, $containsUCS2Chars)
     {
         if ($containsUCS2Chars) return mb_strlen($smsContent, 'UTF-8');
 
@@ -133,7 +197,7 @@ abstract class SMSProvider
         return $sizeOfSMSContent;
     }
 
-    static private function maxCharsAllowed($maximumNumberOfConcatenatedSMS, $containsUCS2Chars)
+    private static function maxCharsAllowed($maximumNumberOfConcatenatedSMS, $containsUCS2Chars)
     {
         $maxCharsInOneUniqueSMS = $containsUCS2Chars ? self::MAX_UCS2_CHARS_IN_ONE_UNIQUE_SMS : self::MAX_GSM_CHARS_IN_ONE_UNIQUE_SMS;
         $maxCharsInOneConcatenatedSMS = $containsUCS2Chars ? self::MAX_UCS2_CHARS_IN_ONE_CONCATENATED_SMS : self::MAX_GSM_CHARS_IN_ONE_CONCATENATED_SMS;
@@ -145,30 +209,4 @@ abstract class SMSProvider
             $maxCharsInOneConcatenatedSMS * $maximumNumberOfConcatenatedSMS;
     }
 
-    /**
-     * verify the SMS API credential
-     *
-     * @param string $apiKey API Key
-     * @return bool true if SMS API credential are valid, false otherwise
-     */
-    abstract public function verifyCredential($apiKey);
-
-    /**
-     * get remaining credits
-     *
-     * @param string $apiKey API Key
-     * @return string remaining credits
-     */
-    abstract public function getCreditLeft($apiKey);
-
-    /**
-     * send SMS
-     *
-     * @param string $apiKey
-     * @param string $smsText
-     * @param string $phoneNumber
-     * @param string $from
-     * @return bool true
-     */
-    abstract public function sendSMS($apiKey, $smsText, $phoneNumber, $from);
 }

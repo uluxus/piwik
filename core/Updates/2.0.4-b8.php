@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -9,23 +9,18 @@
 
 namespace Piwik\Updates;
 
-use Piwik\Db;
 use Piwik\Config;
-use Piwik\Updates;
-use Piwik\UpdaterErrorException;
 use Piwik\Plugins\CoreAdminHome\CustomLogo;
 use Piwik\Plugins\PrivacyManager\Config as PrivacyManagerConfig;
+use Piwik\UpdaterErrorException;
+use Piwik\Updates;
+use Piwik\Updater;
 
 /**
  */
 class Updates_2_0_4_b8 extends Updates
 {
-    static function getSql()
-    {
-        return array();
-    }
-
-    static function update()
+    public function doUpdate(Updater $updater)
     {
         try {
             $config = Config::getInstance();
@@ -34,7 +29,6 @@ class Updates_2_0_4_b8 extends Updates
             self::migratePrivacyManagerConfig($config, new PrivacyManagerConfig());
 
             $config->forceSave();
-
         } catch (\Exception $e) {
             throw new UpdaterErrorException($e->getMessage());
         }

@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -10,22 +10,27 @@ namespace Piwik\Plugins\Login;
 
 use Exception;
 use Piwik\AuthResult;
-use Piwik\Config;
-use Piwik\Cookie;
 use Piwik\Db;
 use Piwik\Piwik;
-use Piwik\Plugins\UsersManager\API;
 use Piwik\Plugins\UsersManager\Model;
-use Piwik\ProxyHttp;
+use Piwik\Plugins\UsersManager\UsersManager;
 use Piwik\Session;
 
-/**
- *
- */
 class Auth implements \Piwik\Auth
 {
-    protected $login = null;
-    protected $token_auth = null;
+    protected $login;
+    protected $token_auth;
+    protected $hashedPassword;
+
+    /**
+     * @var Model
+     */
+    private $userModel;
+
+    public function __construct()
+    {
+        $this->userModel = new Model();
+    }
 
     /**
      * Authentication module's name, e.g., "Login"
@@ -44,63 +49,72 @@ class Auth implements \Piwik\Auth
      */
     public function authenticate()
     {
-        if (is_null($this->login)) {
-            $model = new Model();
-            $user  = $model->getUserByTokenAuth($this->token_auth);
-
-            if (!empty($user['login'])) {
-                $code = $user['superuser_access'] ? AuthResult::SUCCESS_SUPERUSER_AUTH_CODE : AuthResult::SUCCESS;
-
-                return new AuthResult($code, $user['login'], $this->token_auth);
-            }
-        } else if (!empty($this->login)) {
-            $model = new Model();
-            $user  = $model->getUser($this->login);
-
-            if (!empty($user['token_auth'])
-                && (($this->getHashTokenAuth($this->login, $user['token_auth']) === $this->token_auth)
-                    || $user['token_auth'] === $this->token_auth)
-            ) {
-                $this->setTokenAuth($user['token_auth']);
-                $code = !empty($user['superuser_access']) ? AuthResult::SUCCESS_SUPERUSER_AUTH_CODE : AuthResult::SUCCESS;
-
-                return new AuthResult($code, $this->login, $user['token_auth']);
-            }
+        if (!empty($this->hashedPassword)) { // favor authenticating by password
+            return $this->authenticateWithPassword($this->login, $this->getTokenAuthSecret());
+        } elseif (is_null($this->login)) {
+            return $this->authenticateWithToken($this->token_auth);
+        } elseif (!empty($this->login)) {
+            return $this->authenticateWithTokenOrHashToken($this->token_auth, $this->login);
         }
 
         return new AuthResult(AuthResult::FAILURE, $this->login, $this->token_auth);
     }
 
-    /**
-     * Authenticates the user and initializes the session.
-     */
-    public function initSession($login, $md5Password, $rememberMe)
+    private function authenticateWithPassword($login, $passwordHash)
     {
-        $tokenAuth = API::getInstance()->getTokenAuth($login, $md5Password);
+        $user = $this->userModel->getUser($login);
 
-        $this->setLogin($login);
-        $this->setTokenAuth($tokenAuth);
-        $authResult = $this->authenticate();
-
-        $authCookieName = Config::getInstance()->General['login_cookie_name'];
-        $authCookieExpiry = $rememberMe ? time() + Config::getInstance()->General['login_cookie_expire'] : 0;
-        $authCookiePath = Config::getInstance()->General['login_cookie_path'];
-        $cookie = new Cookie($authCookieName, $authCookieExpiry, $authCookiePath);
-        if (!$authResult->wasAuthenticationSuccessful()) {
-            $cookie->delete();
-            throw new Exception(Piwik::translate('Login_LoginPasswordNotCorrect'));
+        if (!empty($user['login']) && $user['password'] === $passwordHash) {
+            return $this->authenticationSuccess($user);
         }
 
-        $cookie->set('login', $login);
-        $cookie->set('token_auth', $this->getHashTokenAuth($login, $authResult->getTokenAuth()));
-        $cookie->setSecure(ProxyHttp::isHttps());
-        $cookie->setHttpOnly(true);
-        $cookie->save();
+        return new AuthResult(AuthResult::FAILURE, $login, null);
+    }
 
-        @Session::regenerateId();
+    private function authenticateWithToken($token)
+    {
+        $user = $this->userModel->getUserByTokenAuth($token);
 
-        // remove password reset entry if it exists
-        Login::removePasswordResetInfo($login);
+        if (!empty($user['login'])) {
+            return $this->authenticationSuccess($user);
+        }
+
+        return new AuthResult(AuthResult::FAILURE, null, $token);
+    }
+
+    private function authenticateWithTokenOrHashToken($token, $login)
+    {
+        $user = $this->userModel->getUser($login);
+
+        if (!empty($user['token_auth'])
+            // authenticate either with the token or the "hash token"
+            && ((SessionInitializer::getHashTokenAuth($login, $user['token_auth']) === $token)
+                || $user['token_auth'] === $token)
+        ) {
+            return $this->authenticationSuccess($user);
+        }
+
+        return new AuthResult(AuthResult::FAILURE, $login, $token);
+    }
+
+    private function authenticationSuccess(array $user)
+    {
+        $this->setTokenAuth($user['token_auth']);
+
+        $isSuperUser = (int) $user['superuser_access'];
+        $code = $isSuperUser ? AuthResult::SUCCESS_SUPERUSER_AUTH_CODE : AuthResult::SUCCESS;
+
+        return new AuthResult($code, $user['login'], $user['token_auth']);
+    }
+
+    /**
+     * Returns the login of the user being authenticated.
+     *
+     * @return string
+     */
+    public function getLogin()
+    {
+        return $this->login;
     }
 
     /**
@@ -114,6 +128,16 @@ class Auth implements \Piwik\Auth
     }
 
     /**
+     * Returns the secret used to calculate a user's token auth.
+     *
+     * @return string
+     */
+    public function getTokenAuthSecret()
+    {
+        return $this->hashedPassword;
+    }
+
+    /**
      * Accessor to set authentication token
      *
      * @param string $token_auth authentication token
@@ -124,14 +148,34 @@ class Auth implements \Piwik\Auth
     }
 
     /**
-     * Accessor to compute the hashed authentication token
+     * Sets the password to authenticate with.
      *
-     * @param string $login user login
-     * @param string $token_auth authentication token
-     * @return string hashed authentication token
+     * @param string $password
      */
-    public function getHashTokenAuth($login, $token_auth)
+    public function setPassword($password)
     {
-        return md5($login . $token_auth);
+        if (empty($password)) {
+            $this->hashedPassword = null;
+        } else {
+            $this->hashedPassword = UsersManager::getPasswordHash($password);
+        }
+    }
+
+    /**
+     * Sets the password hash to use when authentication.
+     *
+     * @param string $passwordHash The password hash.
+     */
+    public function setPasswordHash($passwordHash)
+    {
+        if ($passwordHash === null) {
+            $this->hashedPassword = null;
+            return;
+        }
+
+        // check that the password hash is valid (sanity check)
+        UsersManager::checkPasswordHash($passwordHash, Piwik::translate('Login_ExceptionPasswordMD5HashExpected'));
+
+        $this->hashedPassword = $passwordHash;
     }
 }

@@ -1,17 +1,20 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  */
+namespace Piwik\Tests\Fixtures;
+
 use Piwik\Date;
 use Piwik\Plugins\Goals\API;
+use Piwik\Tests\Framework\Fixture;
 
 /**
  * Adds one site with two goals and tracks two visits with custom variables.
  */
-class Test_Piwik_Fixture_TwoVisitsWithCustomVariables extends Fixture
+class TwoVisitsWithCustomVariables extends Fixture
 {
     public $dateTime = '2010-01-03 11:22:33';
     public $idSite = 1;
@@ -77,7 +80,7 @@ class Test_Piwik_Fixture_TwoVisitsWithCustomVariables extends Fixture
         // At first, visitor custom var is set to LoggedOut
         $visitorA->setForceVisitDateTime(Date::factory($dateTime)->addHour(0.1)->getDatetime());
         $visitorA->setUrl('http://example.org/homepage');
-        $visitorA->setCustomVariable($id = 1, $name = 'VisitorType', $value = 'LoggedOut');
+        $visitorA->setCustomVariable($id = 2, $name = 'VisitorType', $value = 'LoggedOut');
         self::checkResponse($visitorA->doTrackPageView('Homepage'));
         self::checkResponse($visitorA->doTrackGoal($idGoal2));
 

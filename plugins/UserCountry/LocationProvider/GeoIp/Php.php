@@ -1,13 +1,12 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  *
  */
 namespace Piwik\Plugins\UserCountry\LocationProvider\GeoIp;
-
 
 use Piwik\Log;
 use Piwik\Piwik;
@@ -96,6 +95,7 @@ class Php extends GeoIp
     public function getLocation($info)
     {
         $ip = $this->getIpFromInfo($info);
+        $isIPv6 = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6);
 
         $result = array();
 
@@ -105,7 +105,11 @@ class Php extends GeoIp
                 case GEOIP_CITY_EDITION_REV0: // city database type
                 case GEOIP_CITY_EDITION_REV1:
                 case GEOIP_CITYCOMBINED_EDITION:
-                    $location = geoip_record_by_addr($locationGeoIp, $ip);
+                    if ($isIPv6) {
+                        $location = geoip_record_by_addr_v6($locationGeoIp, $ip);
+                    } else {
+                        $location = geoip_record_by_addr($locationGeoIp, $ip);
+                    }
                     if (!empty($location)) {
                         $result[self::COUNTRY_CODE_KEY] = $location->country_code;
                         $result[self::REGION_CODE_KEY] = $location->region;
@@ -118,28 +122,46 @@ class Php extends GeoIp
                     break;
                 case GEOIP_REGION_EDITION_REV0: // region database type
                 case GEOIP_REGION_EDITION_REV1:
-                    $location = geoip_region_by_addr($locationGeoIp, $ip);
+                    if ($isIPv6) {
+                        // NOTE: geoip_region_by_addr_v6 does not exist (yet?), so we
+                        // return the country code and an empty region code
+                        $location = array(geoip_country_code_by_addr_v6($locationGeoIp, $ip), '');
+                    } else {
+                        $location = geoip_region_by_addr($locationGeoIp, $ip);
+                    }
                     if (!empty($location)) {
                         $result[self::COUNTRY_CODE_KEY] = $location[0];
                         $result[self::REGION_CODE_KEY] = $location[1];
                     }
                     break;
                 case GEOIP_COUNTRY_EDITION: // country database type
-                    $result[self::COUNTRY_CODE_KEY] = geoip_country_code_by_addr($locationGeoIp, $ip);
+                    if ($isIPv6) {
+                        $result[self::COUNTRY_CODE_KEY] = geoip_country_code_by_addr_v6($locationGeoIp, $ip);
+                    } else {
+                        $result[self::COUNTRY_CODE_KEY] = geoip_country_code_by_addr($locationGeoIp, $ip);
+                    }
                     break;
                 default: // unknown database type, log warning and fallback to country edition
                     Log::warning("Found unrecognized database type: %s", $locationGeoIp->databaseType);
 
-                    $result[self::COUNTRY_CODE_KEY] = geoip_country_code_by_addr($locationGeoIp, $ip);
+                    if ($isIPv6) {
+                        $result[self::COUNTRY_CODE_KEY] = geoip_country_code_by_addr_v6($locationGeoIp, $ip);
+                    } else {
+                        $result[self::COUNTRY_CODE_KEY] = geoip_country_code_by_addr($locationGeoIp, $ip);
+                    }
                     break;
             }
         }
 
-        // NOTE: ISP & ORG require commercial dbs to test. this code has been tested manually,
-        // but not by integration tests.
+        // NOTE: ISP & ORG require commercial dbs to test. The code has been tested manually,
+        // but not by system tests.
         $ispGeoIp = $this->getGeoIpInstance($key = 'isp');
         if ($ispGeoIp) {
-            $isp = geoip_org_by_addr($ispGeoIp, $ip);
+            if ($isIPv6) {
+                $isp = geoip_name_by_addr_v6($ispGeoIp, $ip);
+            } else {
+                $isp = geoip_org_by_addr($ispGeoIp, $ip);
+            }
             if (!empty($isp)) {
                 $result[self::ISP_KEY] = utf8_encode($isp);
             }
@@ -147,7 +169,11 @@ class Php extends GeoIp
 
         $orgGeoIp = $this->getGeoIpInstance($key = 'org');
         if ($orgGeoIp) {
-            $org = geoip_org_by_addr($orgGeoIp, $ip);
+            if ($isIPv6) {
+                $org = geoip_name_by_addr_v6($orgGeoIp, $ip);
+            } else {
+                $org = geoip_org_by_addr($orgGeoIp, $ip);
+            }
             if (!empty($org)) {
                 $result[self::ORG_KEY] = utf8_encode($org);
             }
@@ -297,10 +323,10 @@ class Php extends GeoIp
     {
         $desc = Piwik::translate('UserCountry_GeoIpLocationProviderDesc_Php1') . '<br/><br/>'
             . Piwik::translate('UserCountry_GeoIpLocationProviderDesc_Php2',
-                array('<strong><em>', '</em></strong>', '<strong><em>', '</em></strong>'));
-        $installDocs = '<em><a target="_blank" href="http://piwik.org/faq/how-to/#faq_163">'
+                array('<strong>', '</strong>', '<strong>', '</strong>'));
+        $installDocs = '<a rel="noreferrer"  target="_blank" href="http://piwik.org/faq/how-to/#faq_163">'
             . Piwik::translate('UserCountry_HowToInstallGeoIPDatabases')
-            . '</em></a>';
+            . '</a>';
 
         $availableDatabaseTypes = array();
         if (self::getPathToGeoIpDatabase(array('GeoIPCity.dat', 'GeoLiteCity.dat')) !== false) {
@@ -319,9 +345,9 @@ class Php extends GeoIp
             $availableDatabaseTypes[] = Piwik::translate('UserCountry_Organization');
         }
 
-        $extraMessage = '<strong><em>' . Piwik::translate('General_Note') . '</em></strong>:&nbsp;'
-            . Piwik::translate('UserCountry_GeoIPImplHasAccessTo') . ':&nbsp;<strong><em>'
-            . implode(', ', $availableDatabaseTypes) . '</em></strong>.';
+        $extraMessage = '<strong>' . Piwik::translate('General_Note') . '</strong>:&nbsp;'
+            . Piwik::translate('UserCountry_GeoIPImplHasAccessTo') . ':&nbsp;<strong>'
+            . implode(', ', $availableDatabaseTypes) . '</strong>.';
 
         return array('id'            => self::ID,
                      'title'         => self::TITLE,

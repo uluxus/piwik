@@ -1,18 +1,21 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link    http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  */
+namespace Piwik\Tests\Fixtures;
+
 use Piwik\Date;
 use Piwik\Plugins\Goals\API as APIGoals;
 use Piwik\Plugins\SitesManager\API as APISitesManager;
+use Piwik\Tests\Framework\Fixture;
 
 /**
  * Adds two websites and tracks visits from two visitors on different days.
  */
-class Test_Piwik_Fixture_TwoSitesTwoVisitorsDifferentDays extends Fixture
+class TwoSitesTwoVisitorsDifferentDays extends Fixture
 {
     public $idSite1 = 1;
     public $idSite2 = 2;
@@ -21,6 +24,8 @@ class Test_Piwik_Fixture_TwoSitesTwoVisitorsDifferentDays extends Fixture
     public $dateTime = '2010-01-03 11:22:33';
 
     public $allowConversions = false;
+    const URL_IS_GOAL_WITH_CAMPAIGN_PARAMETERS = 'http://example.org/index.htm?pk_campaign=goal-matching-url-parameter';
+
 
     public function setUp()
     {
@@ -55,6 +60,9 @@ class Test_Piwik_Fixture_TwoSitesTwoVisitorsDifferentDays extends Fixture
             if (!self::goalExists($idSite = 1, $idGoal = 2)) {
                 APIGoals::getInstance()->addGoal($this->idSite2, 'all', 'url', 'http', 'contains');
             }
+            if (!self::goalExists($idSite = 1, $idGoal = 3)) {
+                APIGoals::getInstance()->addGoal($this->idSite1, 'matching URL with campaign parameter', 'url', self::URL_IS_GOAL_WITH_CAMPAIGN_PARAMETERS, 'contains');
+            }
         }
 
         APISitesManager::getInstance()->updateSite(
@@ -69,7 +77,7 @@ class Test_Piwik_Fixture_TwoSitesTwoVisitorsDifferentDays extends Fixture
             $startDate = null, $excludedUserAgents = null, $keepURLFragments = 1); // KEEP_URL_FRAGMENT_YES Yes for idSite 2
     }
 
-    private function trackVisits()
+    public function trackVisits()
     {
         $dateTime = $this->dateTime;
         $idSite = $this->idSite1;
@@ -85,7 +93,7 @@ class Test_Piwik_Fixture_TwoSitesTwoVisitorsDifferentDays extends Fixture
      */
     private function trackVisitsSite1($idSite, $dateTime)
     {
-// -
+        // -
         // First visitor on Idsite 1: two page views
         $datetimeSpanOverTwoDays = '2010-01-03 23:55:00';
         $visitorA = self::getTracker($idSite, $datetimeSpanOverTwoDays, $defaultInit = true);
@@ -128,7 +136,12 @@ class Test_Piwik_Fixture_TwoSitesTwoVisitorsDifferentDays extends Fixture
             $visitorB->DEBUG_APPEND_URL .= '&_idvc=2&_viewts=' . Date::factory($dateTime)->getTimestamp();
 
             $visitorB->setUrlReferrer('http://referrer.com/Other_Page.htm');
-            $visitorB->setUrl('http://example.org/index.htm');
+            if( in_array($days, array(2,3,4,$daysToGenerateVisitsFor-1)) ) {
+                $visitorB->setUrl( self::URL_IS_GOAL_WITH_CAMPAIGN_PARAMETERS );
+            } else {
+                $visitorB->setUrl('http://example.org/index.htm');
+            }
+
             $visitorB->setGenerationTime(323);
             self::assertTrue($visitorB->doTrackPageView('second visitor/two days later/a new visit'));
             // Second page view 6 minutes later
@@ -150,7 +163,6 @@ class Test_Piwik_Fixture_TwoSitesTwoVisitorsDifferentDays extends Fixture
             self::checkBulkTrackingResponse($visitorB->doBulkTrack());
         }
     }
-
 
     /**
      * @param $idSite2
@@ -179,6 +191,4 @@ class Test_Piwik_Fixture_TwoSitesTwoVisitorsDifferentDays extends Fixture
         $visitorAsite2->setGenerationTime(503);
         self::checkResponse($visitorAsite2->doTrackPageView(''));
     }
-
 }
-

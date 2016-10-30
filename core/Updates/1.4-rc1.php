@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -12,25 +12,34 @@ namespace Piwik\Updates;
 use Piwik\Common;
 use Piwik\Updater;
 use Piwik\Updates;
+use Piwik\Updater\Migration\Factory as MigrationFactory;
 
 /**
  */
 class Updates_1_4_rc1 extends Updates
 {
-    static function getSql()
+    /**
+     * @var MigrationFactory
+     */
+    private $migration;
+
+    public function __construct(MigrationFactory $factory)
+    {
+        $this->migration = $factory;
+    }
+
+    public function getMigrations(Updater $updater)
     {
         return array(
-            'UPDATE `' . Common::prefixTable('pdf') . '`
-		    	SET format = "pdf"'                                                                         => '42S22',
-            'ALTER TABLE `' . Common::prefixTable('pdf') . '`
-		    	ADD COLUMN `format` VARCHAR(10)' => '42S22',
+            $this->migration->db->sql('UPDATE `' . Common::prefixTable('pdf') . '` SET format = "pdf"', '42S22'),
+            $this->migration->db->addColumn('pdf', 'format', 'VARCHAR(10)')
         );
     }
 
-    static function update()
+    public function doUpdate(Updater $updater)
     {
         try {
-            Updater::updateDatabase(__FILE__, self::getSql());
+            $updater->executeMigrations(__FILE__, $this->getMigrations($updater));
         } catch (\Exception $e) {
         }
     }

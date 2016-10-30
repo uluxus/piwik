@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,29 +8,20 @@
  */
 namespace Piwik\Plugins\CustomVariables;
 
+use Piwik\Common;
+use Piwik\DataTable;
 use Piwik\Piwik;
-use Piwik\View;
-use Piwik\ViewDataTable\Factory;
 
-/**
- */
 class Controller extends \Piwik\Plugin\Controller
 {
-    public function index()
+    public function manage()
     {
-        return View::singleReport(
-            Piwik::translate('CustomVariables_CustomVariables'),
-            $this->getCustomVariables(true));
+        $idSite = Common::getRequestVar('idSite');
+
+        Piwik::checkUserHasAdminAccess($idSite);
+
+        return $this->renderTemplate('manage', array());
     }
 
-    public function getCustomVariables()
-    {
-        return $this->renderReport(__FUNCTION__);
-    }
-
-    public function getCustomVariablesValuesFromNameId()
-    {
-        return $this->renderReport(__FUNCTION__);
-    }
 }
 

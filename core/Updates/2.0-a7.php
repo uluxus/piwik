@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -9,29 +9,35 @@
 
 namespace Piwik\Updates;
 
-use Piwik\Common;
 use Piwik\Updater;
 use Piwik\Updates;
+use Piwik\Updater\Migration\Factory as MigrationFactory;
 
 /**
  */
 class Updates_2_0_a7 extends Updates
 {
-    static function getSql()
+    /**
+     * @var MigrationFactory
+     */
+    private $migration;
+
+    public function __construct(MigrationFactory $factory)
+    {
+        $this->migration = $factory;
+    }
+
+    public function getMigrations(Updater $updater)
     {
         return array(
-            // ignore existing column name error (1060)
-            'ALTER TABLE ' . Common::prefixTable('logger_message')
-            . " ADD COLUMN tag VARCHAR(50) NULL AFTER idlogger_message" => 1060,
-
-            'ALTER TABLE ' . Common::prefixTable('logger_message')
-            . " ADD COLUMN level TINYINT AFTER timestamp"               => 1060,
+            $this->migration->db->addColumn('logger_message', 'tag', 'VARCHAR(50) NULL', 'idlogger_message'),
+            $this->migration->db->addColumn('logger_message', 'level', 'TINYINT', 'timestamp'),
         );
     }
 
-    static function update()
+    public function doUpdate(Updater $updater)
     {
         // add tag & level columns to logger_message table
-        Updater::updateDatabase(__FILE__, self::getSql());
+        $updater->executeMigrations(__FILE__, $this->getMigrations($updater));
     }
 }

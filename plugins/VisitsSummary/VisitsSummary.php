@@ -1,16 +1,15 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  *
  */
 namespace Piwik\Plugins\VisitsSummary;
-
-use Piwik\Menu\MenuMain;
-use Piwik\Piwik;
-use Piwik\WidgetsList;
+use Piwik\DataTable;
+use Piwik\Plugins\CoreHome\Columns\UserId;
+use Piwik\Plugins\VisitsSummary\Reports\Get;
 
 /**
  * Note: This plugin does not hook on Daily and Period Archiving like other Plugins because it reports the
@@ -22,53 +21,54 @@ use Piwik\WidgetsList;
 class VisitsSummary extends \Piwik\Plugin
 {
     /**
-     * @see Piwik\Plugin::getListHooksRegistered
+     * @see Piwik\Plugin::registerEvents
      */
-    public function getListHooksRegistered()
+    public function registerEvents()
     {
         return array(
-            'API.getReportMetadata'   => 'getReportMetadata',
-            'WidgetsList.addWidgets'  => 'addWidgets',
-            'Menu.Reporting.addItems' => 'addMenu',
+            'AssetManager.getStylesheetFiles' => 'getStylesheetFiles',
+            'API.API.getProcessedReport.end' => 'enrichProcessedReportIfVisitsSummaryGet',
         );
     }
 
-    public function getReportMetadata(&$reports)
+    private function isRequestingVisitsSummaryGet($module, $method)
     {
-        $reports[] = array(
-            'category'         => Piwik::translate('VisitsSummary_VisitsSummary'),
-            'name'             => Piwik::translate('VisitsSummary_VisitsSummary'),
-            'module'           => 'VisitsSummary',
-            'action'           => 'get',
-            'metrics'          => array(
-                'nb_uniq_visitors',
-                'nb_visits',
-                'nb_actions',
-                'nb_actions_per_visit',
-                'bounce_rate',
-                'avg_time_on_site' => Piwik::translate('General_VisitDuration'),
-                'max_actions'      => Piwik::translate('General_ColumnMaxActions'),
-// Used to process metrics, not displayed/used directly
-//								'sum_visit_length',
-//								'nb_visits_converted',
-            ),
-            'processedMetrics' => false,
-            'order'            => 1
-        );
+        return ($module === 'VisitsSummary' && $method === 'get');
     }
 
-    function addWidgets()
+    public function enrichProcessedReportIfVisitsSummaryGet(&$response, $infos)
     {
-        WidgetsList::add('VisitsSummary_VisitsSummary', 'VisitsSummary_WidgetLastVisits', 'VisitsSummary', 'getEvolutionGraph', array('columns' => array('nb_visits')));
-        WidgetsList::add('VisitsSummary_VisitsSummary', 'VisitsSummary_WidgetVisits', 'VisitsSummary', 'getSparklines');
-        WidgetsList::add('VisitsSummary_VisitsSummary', 'VisitsSummary_WidgetOverviewGraph', 'VisitsSummary', 'index');
+        if (empty($infos['parameters']['apiAction']) || empty($response['reportData'])) {
+            return;
+        }
+
+        $params  = $infos['parameters'];
+        $idSites = array($params['idSite']);
+        $period  = $params['period'];
+        $date    = $params['date'];
+        $module  = $params['apiModule'];
+        $method  = $params['apiAction'];
+
+        if (!$this->isRequestingVisitsSummaryGet($module, $method)) {
+            return;
+        }
+
+        $userId = new UserId();
+
+        /** @var DataTable|DataTable\Map $dataTable */
+        $dataTable = $response['reportData'];
+
+        if (!$userId->hasDataTableUsers($dataTable) &&
+            !$userId->isUsedInAtLeastOneSite($idSites, $period, $date)) {
+            $report = new Get();
+            $report->removeUsersFromProcessedReport($response);
+        }
     }
 
-    function addMenu()
+    public function getStylesheetFiles(&$stylesheets)
     {
-        MenuMain::getInstance()->add('General_Visitors', '', array('module' => 'VisitsSummary', 'action' => 'index'), true, 10);
-        MenuMain::getInstance()->add('General_Visitors', 'General_Overview', array('module' => 'VisitsSummary', 'action' => 'index'), true, 1);
+        $stylesheets[] = "plugins/VisitsSummary/stylesheets/datatable.less";
     }
+
 }
-
 

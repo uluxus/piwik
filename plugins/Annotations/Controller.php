@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -10,7 +10,7 @@ namespace Piwik\Plugins\Annotations;
 
 use Piwik\API\Request;
 use Piwik\Common;
-use Piwik\Piwik;
+use Piwik\Date;
 use Piwik\View;
 
 /**
@@ -71,7 +71,13 @@ class Controller extends \Piwik\Plugin\Controller
         $view->startDate = $startDate->toString();
         $view->endDate = $endDate->toString();
 
-        $dateFormat = Piwik::translate('CoreHome_ShortDateFormatWithYear');
+        if ($startDate->toString() !== $endDate->toString()) {
+            $view->selectedDate = Date::today()->toString();
+        } else {
+            $view->selectedDate = $endDate->toString();
+        }
+
+        $dateFormat = Date::DATE_FORMAT_SHORT;
         $view->startDatePretty = $startDate->getLocalized($dateFormat);
         $view->endDatePretty = $endDate->getLocalized($dateFormat);
 

@@ -1,5 +1,5 @@
 /*!
- * Piwik - Web Analytics
+ * Piwik - free/libre analytics platform
  *
  * Image diff & HTML diff viewer generation.
  *
@@ -14,29 +14,14 @@ var DiffViewerGenerator = function (diffDir) {
     this.diffDir = diffDir;
     this.outputPath = path.join(diffDir, 'diffviewer.html');
     this.failures = [];
-    this.isCompareAvailable = true;
-};
-
-DiffViewerGenerator.prototype.checkImageMagickCompare = function (callback) {
-    var self = this;
-
-    var child = require('child_process').spawn('compare', '--help');
-    child.on("exit", function (code) {
-        self.isCompareAvailable = code == 0 || code == 1;
-
-        if (!self.isCompareAvailable) {
-            console.log("Cannot find ImageMagick compare utility, no diffs will be created.");
-        }
-
-        callback();
-    });
 };
 
 DiffViewerGenerator.prototype.getDiffPath = function (testInfo) {
-    return path.resolve(path.join(this.diffDir, testInfo.name + '.png'));
+    var baseDir = path.join(PIWIK_INCLUDE_PATH, 'tests/UI');
+    return path.resolve(path.join(baseDir, config.screenshotDiffDir, testInfo.name));
 };
 
-// TODO: diff output path shouldn't be stored in piwik-ui-tests repo
+// TODO: diff output path shouldn't be stored in piwik repo
 DiffViewerGenerator.prototype.getUrlForPath = function (path) {
     return fs.relpath(path, this.diffDir);
 };
@@ -46,11 +31,9 @@ DiffViewerGenerator.prototype.generate = function (callback) {
         return callback();
     }
 
-    console.log("Generating diffs...");
+    console.log("Generating diff file");
 
-    var self = this;
-    this.generateDiffs(function () {
-        var diffViewerContent = "<html>\
+    var diffViewerContent = "<html>\
 <head></head>\
 <body>\
 <h1>Screenshot Test Failures</h1>\
@@ -58,29 +41,46 @@ DiffViewerGenerator.prototype.generate = function (callback) {
     <tr>\
         <th>Name</th>\
         <th>Expected</th>\
+        <th>Expected Latest (Master)</th>\
         <th>Processed</th>\
         <th>Difference</th>\
-    </tr>";
+    </tr>\n\n";
 
-        for (var i = 0; i != self.failures.length; ++i) {
-            var entry = self.failures[i];
+        for (var i = 0; i != this.failures.length; ++i) {
+            var entry = this.failures[i];
+            var expectedUrl = null;
+            var githubUrl   = '';
 
             if (entry.expected) {
-                var expectedUrl = self.getUrlForPath(entry.expected);
-                var expectedUrlGithub = 'https://raw.github.com/piwik/piwik-ui-tests/master/expected-ui-screenshots/'
-                                      + entry.name + '.png';
+                if (options['assume-artifacts']) {
+                    require('child_process').spawn('cp', [entry.expected, this.getDiffPath(entry)]);
+                }
+
+                var filename       = entry.name,
+                    expectedUrl    = filename,
+                    screenshotRepo = options['screenshot-repo'] || 'piwik/piwik',
+                    pathPrefix     = options['screenshot-repo'] ? '/Test/UI' : '/tests/UI',
+                    expectedUrlGithub = 'https://raw.githubusercontent.com/' + screenshotRepo + '/master' + pathPrefix
+                                      + '/expected-screenshots/' + filename;
 
                 var expectedHtml = '';
-                if (!options['use-github-expected']) {
-                    expectedHtml += '<a href="' + expectedUrl + '">Expected</a>&nbsp;';
+
+                if (!options['assume-artifacts']) {
+                    expectedUrl = this.getUrlForPath(entry.expected);
                 }
-                expectedHtml += '<a href="' + expectedUrlGithub + '">[Github]</a>';
+
+                expectedHtml += '<a href="' + expectedUrl + '">Expected</a>&nbsp;';
+                githubUrl     = '<a href="' + expectedUrlGithub + '">GitHub</a>';
             } else {
                 var expectedHtml = '<em>Not found</em>';
             }
 
             if (entry.processed) {
-                entry.processedUrl = self.getUrlForPath(entry.processed);
+                if (options['assume-artifacts']) {
+                    entry.processedUrl = path.join("../processed-ui-screenshots", path.basename(entry.processed));
+                } else {
+                    entry.processedUrl = this.getUrlForPath(entry.processed);
+                }
             }
 
             var entryLocationHint = '',
@@ -90,13 +90,19 @@ DiffViewerGenerator.prototype.generate = function (callback) {
                 entryLocationHint = ' <em>(for ' + m[1] + ' plugin)</em>';
             }
 
-            diffViewerContent += '\
-    <tr>\
-        <td>' + entry.name + entryLocationHint + '</td>\
-        <td>' + expectedHtml + '</td>\
-        <td>' + (entry.processed ? ('<a href="' + entry.processedUrl + '">Processed</a>') : '<em>Not found</em>') + '</td>\
-        <td>' + (entry.diffUrl ? ('<a href="' + entry.diffUrl + '">Difference</a>') : '<em>Could not create diff.</em>') + '</td>\
-    </tr>';
+            var processedEntryPath = '';
+            if (entry.processed) {
+                processedEntryPath = path.basename(entry.processed);
+            }
+
+            diffViewerContent += "\n\
+    <tr>\n\
+        <td>" + entry.name + entryLocationHint + "</td>\n\
+        <td>" + expectedHtml + "</td>\n\
+        <td>" + githubUrl + "</td>\n\
+        <td>" + (entry.processed ? ("<a href='" + entry.processedUrl + "'>Processed</a>") : "<em>Not found</em>") + "</td>\n\
+        <td>" + (expectedUrl ? ("<a href='singlediff.html?processed=" + entry.processedUrl + "&expected=" + expectedUrl + "&github=" + processedEntryPath + "'>Difference</a>") : "<em>Could not create diff.</em>") + "</td>\n\
+    </tr>\n";
         }
 
         diffViewerContent += '\
@@ -104,9 +110,9 @@ DiffViewerGenerator.prototype.generate = function (callback) {
 </body>\
 </html>';
 
-        fs.write(self.outputPath, diffViewerContent, "w");
+        fs.write(this.outputPath, diffViewerContent, "w");
 
-        console.log("Failures encountered. View all diffs at: " + self.outputPath);
+        console.log("Failures encountered. View all diffs at: " + this.outputPath);
         console.log();
         console.log("If processed screenshots are correct, you can copy the generated screenshots to the expected "
                   + "screenshot folder.");
@@ -115,54 +121,6 @@ DiffViewerGenerator.prototype.generate = function (callback) {
                   + "Piwik developers will be aware of it.");
 
         callback();
-    });
-};
-
-DiffViewerGenerator.prototype.generateDiffs = function (callback, i) {
-    i = i || 0;
-
-    if (i >= this.failures.length
-        || !this.isCompareAvailable
-    ) {
-        try {
-            callback();
-        } catch (ex) {
-            console.error("Fatal error: failed to generate diffviewer: " + ex.stack);
-            phantom.exit(-1);
-        }
-        return;
-    }
-
-    var entry = this.failures[i];
-
-    if (entry.expected
-        && entry.processed
-    ) {
-        var diffPath = this.getDiffPath(entry);
-
-        var child = require('child_process').spawn('compare', [entry.expected, entry.processed, diffPath]);
-
-        child.stdout.on("data", function (data) {
-            fs.write("/dev/stdout", data, "w");
-        });
-
-        child.stderr.on("data", function (data) {
-            fs.write("/dev/stderr", data, "w");
-        });
-
-        var self = this;
-        child.on("exit", function (code) {
-            if (!code) {
-                console.log("Saved diff to " + diffPath);
-
-                entry.diffUrl = entry.name + '.png';
-            }
-
-            self.generateDiffs(callback, i + 1);
-        });
-    } else {
-        this.generateDiffs(callback, i + 1);
-    }
 };
 
 exports.DiffViewerGenerator = DiffViewerGenerator;

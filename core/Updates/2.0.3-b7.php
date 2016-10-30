@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -9,27 +9,26 @@
 
 namespace Piwik\Updates;
 
-use Piwik\Common;
-use Piwik\Site;
-use Piwik\Updater;
-use Piwik\Updates;
 use Piwik\Filesystem;
-
 use Piwik\Plugins\PrivacyManager\DoNotTrackHeaderChecker;
 use Piwik\Plugins\PrivacyManager\IPAnonymizer;
+use Piwik\Updates;
+use Piwik\Updater;
 
 /**
  */
 class Updates_2_0_3_b7 extends Updates
 {
-    static function update()
+    public function doUpdate(Updater $updater)
     {
         $errors = array();
 
         try {
+            $checker = new DoNotTrackHeaderChecker();
+
             // enable DoNotTrack check in PrivacyManager if DoNotTrack plugin was enabled
             if (\Piwik\Plugin\Manager::getInstance()->isPluginActivated('DoNotTrack')) {
-                DoNotTrackHeaderChecker::activate();
+                $checker->activate();
             }
 
             // enable IP anonymization if AnonymizeIP plugin was enabled
@@ -43,7 +42,10 @@ class Updates_2_0_3_b7 extends Updates
         // disable & delete old plugins
         $oldPlugins = array('DoNotTrack', 'AnonymizeIP');
         foreach ($oldPlugins as $plugin) {
-            \Piwik\Plugin\Manager::getInstance()->deactivatePlugin($plugin);
+            try {
+                \Piwik\Plugin\Manager::getInstance()->deactivatePlugin($plugin);
+            } catch (\Exception $e) {
+            }
 
             $dir = PIWIK_INCLUDE_PATH . "/plugins/$plugin";
 
@@ -54,9 +56,8 @@ class Updates_2_0_3_b7 extends Updates
             if (file_exists($dir)) {
                 $errors[] = "Please delete this directory manually (eg. using your FTP software): $dir \n";
             }
-
         }
-        if(!empty($errors)) {
+        if (!empty($errors)) {
             throw new \Exception("Warnings during the update: <br>" . implode("<br>", $errors));
         }
     }

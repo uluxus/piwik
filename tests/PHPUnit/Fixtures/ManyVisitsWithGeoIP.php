@@ -1,23 +1,29 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link    http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  */
+namespace Piwik\Tests\Fixtures;
 
+use Piwik\Cache;
 use Piwik\Date;
 use Piwik\Plugins\Goals\API;
-use Piwik\Plugins\UserCountry\LocationProvider;
 use Piwik\Plugins\UserCountry\LocationProvider\GeoIp;
+use Piwik\Plugins\UserCountry\LocationProvider;
+use Piwik\Tests\Framework\Fixture;
+use Exception;
+use Piwik\Tests\Framework\Mock\LocationProvider as MockLocationProvider;
+use Piwik\Tracker\Visit;
 
-require_once PIWIK_INCLUDE_PATH . '/tests/PHPUnit/MockLocationProvider.php';
+require_once PIWIK_INCLUDE_PATH . '/tests/PHPUnit/Framework/Mock/LocationProvider.php';
 
 /**
  * Adds one new website and tracks 35 visits from 18 visitors with geolocation using
  * free GeoIP databases. The GeoIP databases are downloaded if they do not exist already.
  */
-class Test_Piwik_Fixture_ManyVisitsWithGeoIP extends Fixture
+class ManyVisitsWithGeoIP extends Fixture
 {
     const GEOIP_IMPL_TO_TEST = 'geoip_php';
 
@@ -29,10 +35,21 @@ class Test_Piwik_Fixture_ManyVisitsWithGeoIP extends Fixture
         '::ffff:137.82.130.49', // in British Columbia (mapped ipv4)
         '137.82.130.0', // anonymization tests
         '137.82.0.0',
-        '2001:db8:85a3:0:0:8a2e:370:7334', // ipv6 (geoip lookup not supported)
+        '2001:db8:85a3:0:0:8a2e:370:7334', // ipv6
         '113.62.1.1', // in Lhasa, Tibet
         '151.100.101.92', // in Rome, Italy (using country DB, so only Italy will show)
         '103.29.196.229', // in Indonesia (Bali), (only Indonesia will show up)
+    );
+
+    public $userAgents = array(
+        'Mozilla/5.0 (Linux; Android 4.4.2; Nexus 4 Build/KOT49H) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.136 Mobile Safari/537.36',
+        'Mozilla/5.0 (Linux; U; Android 2.3.7; fr-fr; HTC Desire Build/GRI40; MildWild CM-8.0 JG Stable) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1',
+        'Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/32.0.1700.76 Safari/537.36',
+        'Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.0; Trident/4.0; GTB6.3; Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; SV1) ; SLCC1; .NET CLR 2.0.50727; Media Center PC 5.0; .NET CLR 3.5.30729; .NET CLR 3.0.30729; OfficeLiveConnector.1.4; OfficeLivePatch.1.3)',
+        'Mozilla/5.0 (Windows NT 6.1; Trident/7.0; MDDSJS; rv:11.0) like Gecko',
+        'Mozilla/5.0 (Linux; Android 4.1.1; SGPT13 Build/TJDS0170) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.114 Safari/537.36',
+        'Mozilla/5.0 (Linux; U; Android 4.3; zh-cn; SM-N9006 Build/JSS15J) AppleWebKit/537.36 (KHTML, like Gecko)Version/4.0 MQQBrowser/5.0 Mobile Safari/537.36',
+        'Mozilla/5.0 (X11; U; Linux i686; ru; rv:1.9.0.14) Gecko/2009090216 Ubuntu/9.04 (jaunty) Firefox/3.0.14'
     );
 
     protected $idGoal;
@@ -86,6 +103,11 @@ class Test_Piwik_Fixture_ManyVisitsWithGeoIP extends Fixture
         $dateTime = $this->dateTime;
         $idSite = $this->idSite;
 
+        if ($useLocal) {
+            Cache::getTransientCache()->flushAll(); // make sure dimension cache is empty between local tracking runs
+            Visit::$dimensions = null;
+        }
+
         // use local tracker so mock location provider can be used
         $t = self::getTracker($idSite, $dateTime, $defaultInit = true, $useLocal);
         if ($doBulk) {
@@ -96,6 +118,8 @@ class Test_Piwik_Fixture_ManyVisitsWithGeoIP extends Fixture
             $t->setVisitorId( substr(md5($i + $calledCounter * 1000), 0, $t::LENGTH_VISITOR_ID));
             if ($setIp) {
                 $t->setIp(current($this->ips));
+                $t->setUserAgent(current($this->userAgents));
+                next($this->userAgents);
                 next($this->ips);
             } else {
                 $t->setIp("1.2.4.$i");
@@ -154,6 +178,20 @@ class Test_Piwik_Fixture_ManyVisitsWithGeoIP extends Fixture
 
             $date = $date->addHour(0.05);
             $t->setForceVisitDateTime($date->getDatetime());
+            $t->doTrackAction('http://example.org/path/file' . $i . '.zip', "download" );
+            if (!$doBulk) {
+                self::checkResponse($r);
+            }
+
+            $date = $date->addHour(0.05);
+            $t->setForceVisitDateTime($date->getDatetime());
+            $r = $t->doTrackAction('http://example-outlink.org/' . $i . '.html', "link" );
+            if (!$doBulk) {
+                self::checkResponse($r);
+            }
+
+            $date = $date->addHour(0.05);
+            $t->setForceVisitDateTime($date->getDatetime());
             $r = $t->doTrackEvent('Cat' . $i, 'Action' . $i, 'Name' . $i, 345.678 + $i );
 
             if (!$doBulk) {
@@ -176,6 +214,7 @@ class Test_Piwik_Fixture_ManyVisitsWithGeoIP extends Fixture
         $t->setTokenAuth(self::getTokenAuth());
         $t->setForceVisitDateTime(Date::factory($dateTime)->addDay(20)->getDatetime());
         $t->setIp('194.57.91.215');
+        $t->setUserId('userid.email@example.org');
         $t->setCountry('us');
         $t->setRegion('CA');
         $t->setCity('not a city');
@@ -183,10 +222,11 @@ class Test_Piwik_Fixture_ManyVisitsWithGeoIP extends Fixture
         $t->setLongitude(2);
         $t->setUrl("http://piwik.net/grue/lair");
         $t->setUrlReferrer('http://google.com/?q=Wikileaks FTW');
+        $t->setUserAgent("Mozilla/5.0 (Windows; U; Windows NT 5.1; en-GB; rv:1.9.2.6) AppleWebKit/522+ (KHTML, like Gecko) Safari/419.3 (.NET CLR 3.5.30729)");
         self::checkResponse($t->doTrackPageView('It\'s pitch black...'));
     }
 
-    private function setLocationProvider($file)
+    public function setLocationProvider($file)
     {
         GeoIp::$dbNames['loc'] = array($file);
         GeoIp::$geoIPDatabaseDir = 'tests/lib/geoip-files';
@@ -205,7 +245,8 @@ class Test_Piwik_Fixture_ManyVisitsWithGeoIP extends Fixture
 
     private function setMockLocationProvider()
     {
-        LocationProvider::$providers = null;
+        LocationProvider::$providers = array();
+        LocationProvider::$providers[] = new MockLocationProvider();
         LocationProvider::setCurrentProvider('mock_provider');
         MockLocationProvider::$locations = array(
             self::makeLocation('Stratford-upon-Avon', 'P3', 'gb', 123.456, 21.321), // template location
@@ -236,9 +277,12 @@ class Test_Piwik_Fixture_ManyVisitsWithGeoIP extends Fixture
         );
     }
 
-    private function unsetLocationProvider()
+    public static function unsetLocationProvider()
     {
-        LocationProvider::setCurrentProvider('default');
+        try {
+            LocationProvider::setCurrentProvider('default');
+        } catch(Exception $e) {
+            // ignore error
+        }
     }
-
 }

@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -11,34 +11,36 @@ namespace Piwik\Plugins\CoreAdminHome;
 use Piwik\Config;
 use Piwik\Filesystem;
 use Piwik\Option;
+use Piwik\Plugin\Manager;
 use Piwik\SettingsPiwik;
 
 class CustomLogo
 {
     const LOGO_HEIGHT = 300;
     const LOGO_SMALL_HEIGHT = 100;
+    const FAVICON_HEIGHT = 32;
 
     public function getLogoUrl($pathOnly = false)
     {
-        $defaultLogo = 'plugins/Zeitgeist/images/logo.png';
+        $defaultLogo = 'plugins/Morpheus/images/logo.png';
         $themeLogo = 'plugins/%s/images/logo.png';
-        $userLogo = CustomLogo::getPathUserLogo();
+        $userLogo = static::getPathUserLogo();
         return $this->getPathToLogo($pathOnly, $defaultLogo, $themeLogo, $userLogo);
     }
 
     public function getHeaderLogoUrl($pathOnly = false)
     {
-        $defaultLogo = 'plugins/Zeitgeist/images/logo-header.png';
+        $defaultLogo = 'plugins/Morpheus/images/logo-header.png';
         $themeLogo = 'plugins/%s/images/logo-header.png';
-        $customLogo = CustomLogo::getPathUserLogoSmall();
+        $customLogo = static::getPathUserLogoSmall();
         return $this->getPathToLogo($pathOnly, $defaultLogo, $themeLogo, $customLogo);
     }
 
     public function getSVGLogoUrl($pathOnly = false)
     {
-        $defaultLogo = 'plugins/Zeitgeist/images/logo.svg';
+        $defaultLogo = 'plugins/Morpheus/images/logo.svg';
         $themeLogo = 'plugins/%s/images/logo.svg';
-        $customLogo = CustomLogo::getPathUserSvgLogo();
+        $customLogo = static::getPathUserSvgLogo();
         $svg = $this->getPathToLogo($pathOnly, $defaultLogo, $themeLogo, $customLogo);
         return $svg;
     }
@@ -65,9 +67,7 @@ class CustomLogo
             return true;
         }
 
-        if ($this->isEnabled()
-            && file_exists(Filesystem::getPathToPiwikRoot() . '/' . CustomLogo::getPathUserSvgLogo())
-        ) {
+        if ($this->isEnabled() && static::logoExists(static::getPathUserSvgLogo())) {
             return true;
         }
 
@@ -77,124 +77,175 @@ class CustomLogo
     /**
      * @return bool
      */
+    public function isFileUploadEnabled()
+    {
+        return ini_get('file_uploads') == 1;
+    }
+
+    /**
+     * @return bool
+     */
     public function isCustomLogoWritable()
     {
+        if (Config::getInstance()->General['enable_custom_logo_check'] == 0) {
+            return true;
+        }
         $pathUserLogo = $this->getPathUserLogo();
 
         $directoryWritingTo = PIWIK_DOCUMENT_ROOT . '/' . dirname($pathUserLogo);
 
         // Create directory if not already created
-        Filesystem::mkdir($directoryWritingTo, $denyAccess = false);
+        Filesystem::mkdir($directoryWritingTo);
 
         $directoryWritable = is_writable($directoryWritingTo);
         $logoFilesWriteable = is_writeable(PIWIK_DOCUMENT_ROOT . '/' . $pathUserLogo)
             && is_writeable(PIWIK_DOCUMENT_ROOT . '/' . $this->getPathUserSvgLogo())
             && is_writeable(PIWIK_DOCUMENT_ROOT . '/' . $this->getPathUserLogoSmall());;
 
-        $serverUploadEnabled = ini_get('file_uploads') == 1;
-        $isCustomLogoWritable = ($logoFilesWriteable || $directoryWritable) && $serverUploadEnabled;
+        $isCustomLogoWritable = ($logoFilesWriteable || $directoryWritable) && $this->isFileUploadEnabled();
 
         return $isCustomLogoWritable;
     }
 
     protected function getPathToLogo($pathOnly, $defaultLogo, $themeLogo, $customLogo)
     {
-        $pathToPiwikRoot = Filesystem::getPathToPiwikRoot();
-
         $logo = $defaultLogo;
 
-        $themeName = \Piwik\Plugin\Manager::getInstance()->getThemeEnabled()->getPluginName();
+        $theme = \Piwik\Plugin\Manager::getInstance()->getThemeEnabled();
+        if(!$theme) {
+            $themeName = Manager::DEFAULT_THEME;
+        } else {
+            $themeName = $theme->getPluginName();
+        }
         $themeLogo = sprintf($themeLogo, $themeName);
 
-        if (file_exists($pathToPiwikRoot . '/' . $themeLogo)) {
+        if (static::logoExists($themeLogo)) {
             $logo = $themeLogo;
         }
-        if ($this->isEnabled()
-            && file_exists($pathToPiwikRoot . '/' . $customLogo)
-        ) {
+        if ($this->isEnabled() && static::logoExists($customLogo)) {
             $logo = $customLogo;
         }
 
         if (!$pathOnly) {
             return SettingsPiwik::getPiwikUrl() . $logo;
         }
-        return $pathToPiwikRoot . '/' . $logo;
+
+        return Filesystem::getPathToPiwikRoot() . '/' . $logo;
     }
 
     public static function getPathUserLogo()
     {
-        return self::rewritePath('misc/user/logo.png');
+        return static::rewritePath('misc/user/logo.png');
+    }
+
+    public static function getPathUserFavicon()
+    {
+        return static::rewritePath('misc/user/favicon.png');
     }
 
     public static function getPathUserSvgLogo()
     {
-        return self::rewritePath('misc/user/logo.svg');
+        return static::rewritePath('misc/user/logo.svg');
     }
 
     public static function getPathUserLogoSmall()
     {
-        return self::rewritePath('misc/user/logo-header.png');
+        return static::rewritePath('misc/user/logo-header.png');
     }
 
     protected static function rewritePath($path)
     {
-        return SettingsPiwik::rewriteMiscUserPathWithHostname($path);
+        return SettingsPiwik::rewriteMiscUserPathWithInstanceId($path);
+    }
+
+    /**
+     * @return bool
+     */
+    public static function hasUserLogo()
+    {
+        return static::logoExists(static::getPathUserLogo());
+    }
+
+    /**
+     * @return bool
+     */
+    public static function hasUserFavicon()
+    {
+        return static::logoExists(static::getPathUserFavicon());
     }
 
     public function copyUploadedLogoToFilesystem()
     {
+        $uploadFieldName = 'customLogo';
 
-        if (empty($_FILES['customLogo'])
-            || !empty($_FILES['customLogo']['error'])
+        $success = $this->uploadImage($uploadFieldName, self::LOGO_SMALL_HEIGHT, $this->getPathUserLogoSmall());
+        $success = $success && $this->uploadImage($uploadFieldName, self::LOGO_HEIGHT, $this->getPathUserLogo());
+
+        return $success;
+    }
+
+    public function copyUploadedFaviconToFilesystem()
+    {
+        $uploadFieldName = 'customFavicon';
+
+        return $this->uploadImage($uploadFieldName, self::FAVICON_HEIGHT, $this->getPathUserFavicon());
+    }
+
+    private function uploadImage($uploadFieldName, $targetHeight, $userPath)
+    {
+        if (empty($_FILES[$uploadFieldName])
+            || !empty($_FILES[$uploadFieldName]['error'])
         ) {
             return false;
         }
 
-        $file = $_FILES['customLogo']['tmp_name'];
+        $file = $_FILES[$uploadFieldName]['tmp_name'];
         if (!file_exists($file)) {
             return false;
         }
 
         list($width, $height) = getimagesize($file);
-        switch ($_FILES['customLogo']['type']) {
+        switch ($_FILES[$uploadFieldName]['type']) {
             case 'image/jpeg':
-                $image = imagecreatefromjpeg($file);
+                $image = @imagecreatefromjpeg($file);
                 break;
             case 'image/png':
-                $image = imagecreatefrompng($file);
+                $image = @imagecreatefrompng($file);
                 break;
             case 'image/gif':
-                $image = imagecreatefromgif($file);
+                $image = @imagecreatefromgif ($file);
                 break;
             default:
                 return false;
         }
 
-        $widthExpected = round($width * self::LOGO_HEIGHT / $height);
-        $smallWidthExpected = round($width * self::LOGO_SMALL_HEIGHT / $height);
-
-        $logo = imagecreatetruecolor($widthExpected, self::LOGO_HEIGHT);
-        $logoSmall = imagecreatetruecolor($smallWidthExpected, self::LOGO_SMALL_HEIGHT);
-
-        // Handle transparency
-        $background = imagecolorallocate($logo, 0, 0, 0);
-        $backgroundSmall = imagecolorallocate($logoSmall, 0, 0, 0);
-        imagecolortransparent($logo, $background);
-        imagecolortransparent($logoSmall, $backgroundSmall);
-
-        if ($_FILES['customLogo']['type'] == 'image/png') {
-            imagealphablending($logo, false);
-            imagealphablending($logoSmall, false);
-            imagesavealpha($logo, true);
-            imagesavealpha($logoSmall, true);
+        if (!is_resource($image)) {
+            return false;
         }
 
-        imagecopyresized($logo, $image, 0, 0, 0, 0, $widthExpected, self::LOGO_HEIGHT, $width, $height);
-        imagecopyresized($logoSmall, $image, 0, 0, 0, 0, $smallWidthExpected, self::LOGO_SMALL_HEIGHT, $width, $height);
+        $targetWidth = round($width * $targetHeight / $height);
 
-        imagepng($logo, PIWIK_DOCUMENT_ROOT . '/' . $this->getPathUserLogo(), 3);
-        imagepng($logoSmall, PIWIK_DOCUMENT_ROOT . '/' . $this->getPathUserLogoSmall(), 3);
+        $newImage = imagecreatetruecolor($targetWidth, $targetHeight);
+
+        if ($_FILES[$uploadFieldName]['type'] == 'image/png') {
+            imagealphablending($newImage, false);
+            imagesavealpha($newImage, true);
+        }
+
+        $backgroundColor = imagecolorallocate($newImage, 0, 0, 0);
+        imagecolortransparent($newImage, $backgroundColor);
+
+        imagecopyresampled($newImage, $image, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
+        imagepng($newImage, PIWIK_DOCUMENT_ROOT . '/' . $userPath, 3);
         return true;
+    }
+
+    /**
+     * @return bool
+     */
+    private static function logoExists($relativePath)
+    {
+        return file_exists(Filesystem::getPathToPiwikRoot() . '/' . $relativePath);
     }
 
 }

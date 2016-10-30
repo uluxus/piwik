@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -13,20 +13,30 @@ use Piwik\Common;
 use Piwik\Config;
 use Piwik\Updater;
 use Piwik\Updates;
+use Piwik\Updater\Migration\Factory as MigrationFactory;
 
 /**
  */
 class Updates_0_5_4 extends Updates
 {
-    static function getSql()
+    /**
+     * @var MigrationFactory
+     */
+    private $migration;
+
+    public function __construct(MigrationFactory $factory)
+    {
+        $this->migration = $factory;
+    }
+
+    public function getMigrations(Updater $updater)
     {
         return array(
-            'ALTER TABLE `' . Common::prefixTable('log_action') . '`
-				 CHANGE `name` `name` TEXT' => false,
+            $this->migration->db->changeColumnType('log_action', 'name', 'TEXT'),
         );
     }
 
-    static function update()
+    public function doUpdate(Updater $updater)
     {
         $salt = Common::generateUniqId();
         $config = Config::getInstance();
@@ -60,6 +70,6 @@ class Updates_0_5_4 extends Updates
             }
         }
 
-        Updater::updateDatabase(__FILE__, self::getSql());
+        $updater->executeMigrations(__FILE__, $this->getMigrations($updater));
     }
 }

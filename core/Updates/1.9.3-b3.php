@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -10,12 +10,13 @@
 namespace Piwik\Updates;
 
 use Piwik\Updates;
+use Piwik\Updater;
 
 /**
  */
 class Updates_1_9_3_b3 extends Updates
 {
-    static function update()
+    public function doUpdate(Updater $updater)
     {
         // Insight was a temporary code name for Overlay
         $pluginToDelete = 'Insight';

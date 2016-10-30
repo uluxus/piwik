@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -11,6 +11,15 @@ namespace Piwik\Plugins\Insights\DataTable\Filter;
 use Piwik\DataTable\BaseFilter;
 use Piwik\DataTable\Row;
 
+/**
+ * Goal is to list all positive values first (the higher the better) and then all negative values (the lower the better).
+ *
+ * 40%
+ * 20%
+ * 0%
+ * -40%
+ * -20%
+ */
 class OrderBy extends BaseFilter
 {
     private $columnsToCheck;

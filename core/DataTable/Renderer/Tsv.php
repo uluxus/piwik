@@ -1,13 +1,12 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  *
  */
 namespace Piwik\DataTable\Renderer;
-
 
 /**
  * TSV export
@@ -21,7 +20,7 @@ class Tsv extends Csv
     /**
      * Constructor
      */
-    function __construct()
+    public function __construct()
     {
         parent::__construct();
         $this->setSeparator("\t");
@@ -32,7 +31,7 @@ class Tsv extends Csv
      *
      * @return string
      */
-    function render()
+    public function render()
     {
         return parent::render();
     }

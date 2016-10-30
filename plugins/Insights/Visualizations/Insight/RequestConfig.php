@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -16,7 +16,7 @@ use Piwik\ViewDataTable\RequestConfig as VisualizationRequestConfig;
 class RequestConfig extends VisualizationRequestConfig
 {
     public $min_impact_percent = '0.1';
-    public $min_growth_percent = 20;
+    public $min_growth_percent = 1;
     public $compared_to_x_periods_ago = 1;
     public $order_by = InsightReport::ORDER_BY_ABSOLUTE;
     public $filter_by = '';
@@ -26,7 +26,6 @@ class RequestConfig extends VisualizationRequestConfig
     public function __construct()
     {
         $this->disable_generic_filters = true;
-        $this->disable_queued_filters  = true;
 
         $properties = array(
             'min_growth_percent',

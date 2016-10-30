@@ -15,6 +15,9 @@ var Piwik_Overlay_FollowingPages = (function () {
     /** Reference to create element function */
     var c;
 
+    /** Counter for the largest clickRate on the page */ 
+    var maxClickRate = 0;
+
     /** Load the following pages */
     function load(callback) {
         // normalize current location
@@ -63,7 +66,9 @@ var Piwik_Overlay_FollowingPages = (function () {
             totalClicks += followingPages[i].referrals;
         }
         for (i = 0; i < followingPages.length; i++) {
-            followingPages[i].clickRate = followingPages[i].referrals / totalClicks * 100;
+            var clickRate = followingPages[i].referrals / totalClicks * 100; 
+            followingPages[i].clickRate = clickRate;
+            if (clickRate > maxClickRate) maxClickRate = clickRate;
         }
     }
 
@@ -164,7 +169,10 @@ var Piwik_Overlay_FollowingPages = (function () {
         linkTag[0].piwikTagElement = true;
 
         var rate = data.clickRate;
-        if (rate < 10) {
+
+        if( rate < 0.001 ) {
+            rate = '<0.001';
+        } else if (rate < 10) {
             rate = Math.round(rate * 10) / 10;
         } else {
             rate = Math.round(rate);
@@ -172,6 +180,9 @@ var Piwik_Overlay_FollowingPages = (function () {
 
         var span = c('span').html(rate + '%');
         var tagElement = c('div', 'LinkTag').append(span).hide();
+        
+        tagElement.attr({'data-rateofmax': Math.round(100 * rate/maxClickRate)/100});
+        
         body.prepend(tagElement);
 
         linkTag.add(tagElement).hover(function () {
@@ -246,17 +257,22 @@ var Piwik_Overlay_FollowingPages = (function () {
                         offset = linkTag.offset();
                     }
 
+                    var zoomFactor = 1 + +tagElement.attr('data-rateofmax');
+                    tagElement.css({'zoom':zoomFactor, 'opacity': zoomFactor/2 });
+                    offset.top = offset.top / zoomFactor;
+                    offset.left = offset.left / zoomFactor;
+
                     top = offset.top - tagHeight + 6;
                     left = offset.left - tagWidth + 10;
 
                     if (isRight = (left < 2)) {
                         tagElement.addClass('PIS_Right');
-                        left = offset.left + linkTag.outerWidth() - 10;
+                        left = offset.left + linkTag.outerWidth() / zoomFactor - 10;
                     }
 
                     if (top < 2) {
                         tagElement.addClass(isRight ? 'PIS_BottomRight' : 'PIS_Bottom');
-                        top = offset.top + linkTag.outerHeight() - 6;
+                        top = offset.top + linkTag.outerHeight() / zoomFactor - 6;
                     }
 
                     tagElement.css({
@@ -387,11 +403,11 @@ var Piwik_Overlay_FollowingPages = (function () {
             offset = linkTag.offset();
             height = linkTag.outerHeight();
         }
-        
+
         var numLinks = linksOnPage[linkUrl].length;
 
         putBoxAroundLink(offset, width, height, numLinks, data.referrals);
-        
+
         // highlight tags
         for (var j = 0; j < numLinks; j++) {
             var tag = linksOnPage[linkUrl][j][0].piwikTagElement;
@@ -407,11 +423,11 @@ var Piwik_Overlay_FollowingPages = (function () {
         linkTag[0].piwikHideNotification = Piwik_Overlay_Client.notification(
             Piwik_Overlay_Translations.get('link') + ': ' + linkUrl, 'LinkLocation');
     }
-    
+
     function putBoxAroundLink(offset, width, height, numLinks, numReferrals) {
         var borderWidth = 2;
         var padding = 4; // the distance between the link and the border
-        
+
         // top border
         highlightElements[0]
             .width(width + 2 * padding)
@@ -419,7 +435,7 @@ var Piwik_Overlay_FollowingPages = (function () {
                 top: offset.top - borderWidth - padding,
                 left: offset.left - padding
             }).show();
-        
+
         // right border
         highlightElements[1]
             .height(height + 2 * borderWidth + 2 * padding)
@@ -427,7 +443,7 @@ var Piwik_Overlay_FollowingPages = (function () {
                 top: offset.top - borderWidth - padding,
                 left: offset.left + width + padding
             }).show();
-        
+
         // left border
         highlightElements[2]
             .height(height + 2 * borderWidth + 2 * padding)
@@ -456,7 +472,7 @@ var Piwik_Overlay_FollowingPages = (function () {
             top: offset.top + height + padding,
             left: offset.left - borderWidth - padding
         }).show();
-        
+
         var minBoxWidth = width + 2 * borderWidth + 2 * padding;
         if (highlightElements[3].width() < minBoxWidth) {
             // we cannot use minWidth because of IE7
@@ -484,7 +500,6 @@ var Piwik_Overlay_FollowingPages = (function () {
             linkTag[0].piwikHideNotification = null;
         }
     }
-
 
     return {
 

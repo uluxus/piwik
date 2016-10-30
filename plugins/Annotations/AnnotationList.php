@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -84,6 +84,7 @@ class AnnotationList
     public function add($idSite, $date, $note, $starred = 0)
     {
         $this->checkIdSiteIsLoaded($idSite);
+        $date = Date::factory($date)->toString('Y-m-d');
 
         $this->annotations[$idSite][] = self::makeAnnotation($date, $note, $starred);
 
@@ -132,7 +133,7 @@ class AnnotationList
 
         $annotation =& $this->annotations[$idSite][$idNote];
         if ($date !== null) {
-            $annotation['date'] = $date;
+            $annotation['date'] = Date::factory($date)->toString('Y-m-d');
         }
         if ($note !== null) {
             $annotation['note'] = $note;
@@ -330,7 +331,7 @@ class AnnotationList
 
             if ($serialized !== false) {
                 $result[$id] = @unserialize($serialized);
-                if(empty($result[$id])) {
+                if (empty($result[$id])) {
                     // in case unserialize failed
                     $result[$id] = array();
                 }
@@ -439,7 +440,7 @@ class AnnotationList
     public static function canUserAddNotesFor($idSite)
     {
         return Piwik::isUserHasViewAccess($idSite)
-        && !Piwik::isUserIsAnonymous($idSite);
+        && !Piwik::isUserIsAnonymous();
     }
 
     /**

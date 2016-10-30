@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -27,10 +27,10 @@ use Piwik\Tracker\Cache;
 class Config
 {
     private $properties = array(
-        'useAnonymizedIpForVisitEnrichment' => array('type' => 'boolean', 'default' => true),
-        'ipAddressMaskLength'               => array('type' => 'integer', 'default' => 1),
+        'useAnonymizedIpForVisitEnrichment' => array('type' => 'boolean', 'default' => false),
+        'ipAddressMaskLength'               => array('type' => 'integer', 'default' => 2),
         'doNotTrackEnabled'                 => array('type' => 'boolean', 'default' => true),
-        'ipAnonymizerEnabled'               => array('type' => 'boolean', 'default' => false),
+        'ipAnonymizerEnabled'               => array('type' => 'boolean', 'default' => true),
     );
 
     public function __set($name, $value)
@@ -64,6 +64,7 @@ class Config
         if (array_key_exists($name, $cache)) {
             $value = $cache[$name];
             settype($value, $config['type']);
+
             return $value;
         }
 

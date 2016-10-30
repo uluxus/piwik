@@ -1,5 +1,5 @@
 /*!
- * Piwik - Web Analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -20,10 +20,13 @@ Piwik.addPlugin('testPlugin', {
 				'_isObject : isObject,' +
 				'_isString : isString,' +
 				'_isSiteHostName : isSiteHostName,' +
+				'_isSiteHostPath : isSiteHostPath,' +
 				'_getClassesRegExp : getClassesRegExp,' +
 				'_hasCookies : hasCookies,' +
 				'_getCookie : getCookie,' +
+				'_getCookieName : getCookieName,' +
 				'_setCookie : setCookie,' +
+				'_getLinkIfShouldBeProcessed : getLinkIfShouldBeProcessed,' +
 				'_encode : encodeWrapper,' +
 				'_decode : decodeWrapper,' +
 				'_urldecode : urldecode,' +
@@ -40,7 +43,9 @@ Piwik.addPlugin('testPlugin', {
 				'_purify : purify,' +
 				'_resolveRelativeReference : resolveRelativeReference,' +
 				'_addEventListener : addEventListener,' +
-				'_prefixPropertyName : prefixPropertyName' +
+				'_prefixPropertyName : prefixPropertyName,' +
+				'_getPiwikUrlForOverlay : getPiwikUrlForOverlay, ' +
+				'_isInsideAnIframe : isInsideAnIframe' +
 			'}'
 		);
 	},

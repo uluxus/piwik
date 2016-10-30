@@ -1,5 +1,5 @@
 /*!
- * Piwik - Web Analytics
+ * Piwik - free/libre analytics platform
  *
  * path related functions
  *
@@ -14,6 +14,11 @@ exports.join = function () {
 exports.dirname = function (path) {
     var lastSeparator = path.lastIndexOf("/");
     return lastSeparator == -1 ? path : path.substring(0, lastSeparator);
+};
+
+exports.basename = function (path) {
+    var lastSeparator = path.lastIndexOf("/");
+    return lastSeparator == -1 ? path : path.substring(lastSeparator + 1);
 };
 
 exports.resolve = function (path) {

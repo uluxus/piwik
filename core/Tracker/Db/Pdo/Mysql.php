@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - Open source web analytics
+ * Piwik - free/libre analytics platform
  *
  * @link http://piwik.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -30,6 +30,8 @@ class Mysql extends Db
     protected $password;
     protected $charset;
 
+    protected $activeTransaction = false;
+
     /**
      * Builds the DB object
      *
@@ -40,14 +42,19 @@ class Mysql extends Db
     {
         if (isset($dbInfo['unix_socket']) && $dbInfo['unix_socket'][0] == '/') {
             $this->dsn = $driverName . ':dbname=' . $dbInfo['dbname'] . ';unix_socket=' . $dbInfo['unix_socket'];
-        } else if (!empty($dbInfo['port']) && $dbInfo['port'][0] == '/') {
+        } elseif (!empty($dbInfo['port']) && $dbInfo['port'][0] == '/') {
             $this->dsn = $driverName . ':dbname=' . $dbInfo['dbname'] . ';unix_socket=' . $dbInfo['port'];
         } else {
             $this->dsn = $driverName . ':dbname=' . $dbInfo['dbname'] . ';host=' . $dbInfo['host'] . ';port=' . $dbInfo['port'];
         }
+
         $this->username = $dbInfo['username'];
         $this->password = $dbInfo['password'];
-        $this->charset = isset($dbInfo['charset']) ? $dbInfo['charset'] : null;
+
+        if (isset($dbInfo['charset'])) {
+            $this->charset = $dbInfo['charset'];
+            $this->dsn .= ';charset=' . $this->charset;
+        }
     }
 
     public function __destruct()
@@ -66,8 +73,17 @@ class Mysql extends Db
             $timer = $this->initProfiler();
         }
 
-        $this->connection = @new PDO($this->dsn, $this->username, $this->password, $config = array());
-        $this->connection->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        // Make sure MySQL returns all matched rows on update queries including
+        // rows that actually didn't have to be updated because the values didn't
+        // change. This matches common behaviour among other database systems.
+        // See #6296 why this is important in tracker
+        $config = array(
+            PDO::MYSQL_ATTR_FOUND_ROWS => true,
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        );
+
+        $this->connection = @new PDO($this->dsn, $this->username, $this->password, $config);
+
         // we may want to setAttribute(PDO::ATTR_TIMEOUT ) to a few seconds (default is 60) in case the DB is locked
         // the piwik.php would stay waiting for the database... bad!
         // we delete the password from this object "just in case" it could be printed
@@ -168,7 +184,7 @@ class Mysql extends Db
      * @param string $query Query
      * @param array|string $parameters Parameters to bind array('idsite'=> 1)
      * @return PDOStatement|bool  PDOStatement or false if failed
-     * @throws DbException if an exception occured
+     * @throws DbException if an exception occurred
      */
     public function query($query, $parameters = array())
     {
@@ -192,9 +208,8 @@ class Mysql extends Db
             }
             return $sth;
         } catch (PDOException $e) {
-            throw new DbException("Error query: " . $e->getMessage() . "
-								In query: $query
-								Parameters: " . var_export($parameters, true));
+            $message = $e->getMessage() . " In query: $query Parameters: " . var_export($parameters, true);
+            throw new DbException("Error query: " . $message, (int) $e->getCode());
         }
     }
 
@@ -233,5 +248,59 @@ class Mysql extends Db
     public function rowCount($queryResult)
     {
         return $queryResult->rowCount();
+    }
+
+    /**
+     * Start Transaction
+     * @return string TransactionID
+     */
+    public function beginTransaction()
+    {
+        if (!$this->activeTransaction === false) {
+            return;
+        }
+
+        if ($this->connection->beginTransaction()) {
+            $this->activeTransaction = uniqid();
+            return $this->activeTransaction;
+        }
+    }
+
+    /**
+     * Commit Transaction
+     * @param $xid
+     * @throws DbException
+     * @internal param TransactionID $string from beginTransaction
+     */
+    public function commit($xid)
+    {
+        if ($this->activeTransaction != $xid || $this->activeTransaction === false) {
+            return;
+        }
+
+        $this->activeTransaction = false;
+
+        if (!$this->connection->commit()) {
+            throw new DbException("Commit failed");
+        }
+    }
+
+    /**
+     * Rollback Transaction
+     * @param $xid
+     * @throws DbException
+     * @internal param TransactionID $string from beginTransaction
+     */
+    public function rollBack($xid)
+    {
+        if ($this->activeTransaction != $xid || $this->activeTransaction === false) {
+            return;
+        }
+
+        $this->activeTransaction = false;
+
+        if (!$this->connection->rollBack()) {
+            throw new DbException("Rollback failed");
+        }
     }
 }
