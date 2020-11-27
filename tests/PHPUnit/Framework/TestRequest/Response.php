@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -9,7 +9,7 @@
 namespace Piwik\Tests\Framework\TestRequest;
 
 use Piwik\API\Request;
-use PHPUnit_Framework_Assert as Asserts;
+use PHPUnit\Framework\Assert as Asserts;
 use Exception;
 use Piwik\Tests\Framework\Fixture;
 use Piwik\Tests\Framework\TestCase\SystemTestCase;
@@ -59,6 +59,9 @@ class Response
     public static function loadFromApi($params, $requestUrl, $normalize = true)
     {
         $testRequest = new Request($requestUrl);
+
+        // set the request as root request
+        Request::setIsRootRequestApiRequest(Request::getMethodIfApiRequest(Request::getRequestArrayFromString($requestUrl, null)));
 
         // Cast as string is important. For example when calling
         // with format=original, objects or php arrays can be returned.

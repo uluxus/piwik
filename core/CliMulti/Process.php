@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -165,7 +165,11 @@ class Process
             return false;
         }
 
-        if (self::shellExecFunctionIsDisabled()) {
+        if (self::isMethodDisabled('shell_exec')) {
+            return false;
+        }
+
+        if (self::isMethodDisabled('getmypid')) {
             return false;
         }
 
@@ -202,9 +206,12 @@ class Process
         return false;
     }
 
-    private static function shellExecFunctionIsDisabled()
+    public static function isMethodDisabled($command)
     {
-        $command = 'shell_exec';
+        if (!function_exists($command)) {
+            return true;
+        }
+
         $disabled = explode(',', ini_get('disable_functions'));
         $disabled = array_map('trim', $disabled);
         return in_array($command, $disabled)  || !function_exists($command);
@@ -242,7 +249,7 @@ class Process
 
     public static function getListOfRunningProcesses()
     {
-        $processes = `ps ex 2>/dev/null`;
+        $processes = `ps x 2>/dev/null`;
         if (empty($processes)) {
             return array();
         }
@@ -254,7 +261,7 @@ class Process
      */
      public static function getRunningProcesses()
      {
-         $ids = explode("\n", trim(`ps ex 2>/dev/null | awk '! /defunct/ {print $1}' 2>/dev/null`));
+         $ids = explode("\n", trim(`ps x 2>/dev/null | awk '! /defunct/ {print $1}' 2>/dev/null`));
 
          $ids = array_map('intval', $ids);
          $ids = array_filter($ids, function ($id) {

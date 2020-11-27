@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -31,7 +31,7 @@ class AnonymizationTest extends SystemTestCase
      */
     private $api;
 
-    public function setUp()
+    public function setUp(): void
     {
         parent::setUp();
         $this->api = API::getInstance();
@@ -56,7 +56,7 @@ class AnonymizationTest extends SystemTestCase
     public function getApiForTesting()
     {
         $apiToTest = array();
-        $apiToTest[] = array(array('Live.getLastVisitsDetails'),
+        $apiToTest[] = array(array('Live.getLastVisitsDetails', 'Referrers.getAll'),
             array(
                 'idSite'     => self::$fixture->idSite,
                 'date'       => self::$fixture->dateTime,

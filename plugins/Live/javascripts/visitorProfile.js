@@ -1,9 +1,9 @@
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * Visitor profile popup control.
  *
- * @link http://piwik.org
+ * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  */
 
@@ -41,8 +41,15 @@
      * in a new tab/window.
      *
      * @param {String} visitorId The string visitor ID.
+     * @param {String} idSite The ID of the site.
      */
     VisitorProfileControl.showPopover = function (visitorId, idSite) {
+
+        if (!piwik.visitorProfileEnabled) {
+            console.error('Visitor Profile was disabled in website settings');
+            return;
+        }
+
         var url = 'module=Live&action=getVisitorProfilePopup&visitorId=' + encodeURIComponent(visitorId);
         if (idSite) {
             url += '&idSite=' + idSite;
@@ -71,14 +78,27 @@
             var self = this,
                 $element = this.$element;
 
-            $element.on('click', '.visitor-profile-close', function (e) {
-                e.preventDefault();
-                try {
-                    $element.tooltip('destroy');
-                } catch (e) {}
-                broadcast.propagateNewPopoverParameter(false);
-                return false;
-            });
+            // if there are no popover params in stack, simply close the popover
+            if (!broadcast.popoverParamStack.length) {
+                $element.on('click', '.visitor-profile-close', function (e) {
+                    e.preventDefault();
+                    try {
+                        $element.tooltip('destroy');
+                    } catch (e) {
+                    }
+                    Piwik_Popover.close();
+                });
+            } else {
+                $element.on('click', '.visitor-profile-close', function (e) {
+                    e.preventDefault();
+                    try {
+                        $element.tooltip('destroy');
+                    } catch (e) {
+                    }
+                    broadcast.propagateNewPopoverParameter(false);
+                    return false;
+                });
+            }
 
             $element.on('click', '.visitor-profile-toggle-actions', function (e) {
                 e.preventDefault();
@@ -211,6 +231,18 @@
                     $('.visitor-profile-visits', $element).append(response);
                     if (response.filter('li').length < 10) {
                         self._showNoMoreVisitsSpan();
+                    }
+
+                    var numbers = $('[data-number]', $element);
+                    var max = $(numbers[0]).attr('data-number');
+
+                    if (numbers.length > max) {
+                        var counter = numbers.length;
+                        numbers.each(function() {
+                            $(this).attr('data-number', counter);
+                            $('.counter', $(this)).text(counter);
+                            counter--;
+                        });
                     }
 
                     piwikHelper.lazyScrollTo($(response)[0], 400, true);

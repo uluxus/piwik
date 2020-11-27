@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -11,7 +11,6 @@ namespace Piwik\Tracker;
 use Piwik\Common;
 use Piwik\EventDispatcher;
 use Piwik\Plugin\Dimension\VisitDimension;
-use Piwik\Plugins\CustomVariables\CustomVariables;
 use Piwik\Tracker\Visit\VisitProperties;
 
 /**
@@ -19,6 +18,12 @@ use Piwik\Tracker\Visit\VisitProperties;
  */
 class VisitorRecognizer
 {
+    /**
+     * Set when a visit was found. Stores the original values of the row that is currently stored in the DB when
+     * the visit was selected.
+     */
+    const KEY_ORIGINAL_VISIT_ROW = 'originalVisit';
+
     /**
      * Local variable cache for the getVisitFieldsPersist() method.
      *
@@ -83,6 +88,7 @@ class VisitorRecognizer
     {
         $idSite    = $request->getIdSite();
         $idVisitor = $request->getVisitorId();
+        $userId    = $request->getForcedUserId();
 
         $isVisitorIdToLookup = !empty($idVisitor);
 
@@ -98,7 +104,7 @@ class VisitorRecognizer
         $shouldMatchOneFieldOnly  = $this->shouldLookupOneVisitorFieldOnly($isVisitorIdToLookup, $request);
         list($timeLookBack, $timeLookAhead) = $this->getWindowLookupThisVisit($request);
 
-        $visitRow = $this->model->findVisitor($idSite, $configId, $idVisitor, $persistedVisitAttributes, $shouldMatchOneFieldOnly, $isVisitorIdToLookup, $timeLookBack, $timeLookAhead);
+        $visitRow = $this->model->findVisitor($idSite, $configId, $idVisitor, $userId, $persistedVisitAttributes, $shouldMatchOneFieldOnly, $isVisitorIdToLookup, $timeLookBack, $timeLookAhead);
         $this->visitRow = $visitRow;
 
         if ($visitRow
@@ -118,6 +124,34 @@ class VisitorRecognizer
 
             return false;
         }
+    }
+
+    public function removeUnchangedValues($visit, VisitProperties $originalVisit = null)
+    {
+        if (empty($originalVisit)) {
+            return $visit;
+        }
+
+        $originalRow = $originalVisit->getProperties();
+        if (!empty($originalRow['idvisitor'])
+            && !empty($visit['idvisitor'])
+            && bin2hex($originalRow['idvisitor']) === bin2hex($visit['idvisitor'])) {
+            unset($visit['idvisitor']);
+        }
+
+        $fieldsToCompareValue = array('user_id', 'visit_last_action_time', 'visit_total_time');
+        foreach ($fieldsToCompareValue as $field) {
+            if (!empty($originalRow[$field])
+                && !empty($visit[$field])
+                && $visit[$field] == $originalRow[$field]) {
+                // we can't use === eg for visit_total_time which may be partially an integer and sometimes a string
+                // because we check for !empty things should still work as expected though
+                // (eg we wouldn't compare false with 0)
+                unset($visit[$field]);
+            }
+        }
+
+        return $visit;
     }
 
     public function updateVisitPropertiesFromLastVisitRow(VisitProperties $visitProperties)
@@ -143,7 +177,7 @@ class VisitorRecognizer
 
         // This setting would be enabled for Intranet websites, to ensure that visitors using all the same computer config, same IP
         // are not counted as 1 visitor. In this case, we want to enforce and trust the visitor ID from the cookie.
-        if (($isVisitorIdToLookup || $isForcedUserIdMustMatch) && $this->trustCookiesOnly) {
+        if ($isVisitorIdToLookup && $this->trustCookiesOnly) {
             return true;
         }
 
@@ -203,8 +237,8 @@ class VisitorRecognizer
                 'visit_exit_idaction_url',
                 'visit_exit_idaction_name',
                 'visitor_returning',
-                'visitor_days_since_first',
-                'visitor_days_since_order',
+                'visitor_seconds_since_first',
+                'visitor_seconds_since_order',
                 'visitor_count_visits',
                 'visit_goal_buyer',
 
@@ -246,11 +280,6 @@ class VisitorRecognizer
 
             array_unshift($fields, 'visit_first_action_time');
             array_unshift($fields, 'visit_last_action_time');
-
-            for ($index = 1; $index <= CustomVariables::getNumUsableCustomVariables(); $index++) {
-                $fields[] = 'custom_var_k' . $index;
-                $fields[] = 'custom_var_v' . $index;
-            }
 
             $this->visitFieldsToSelect = array_unique($fields);
         }

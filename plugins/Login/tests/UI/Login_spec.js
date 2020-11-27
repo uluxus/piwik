@@ -1,9 +1,9 @@
 /*!
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * login & password reset screenshot tests.
  *
- * @link http://piwik.org
+ * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
  */
 
@@ -149,7 +149,7 @@ describe("Login", function () {
         expect(await page.screenshot({ fullPage: true })).to.matchImage('password_reset');
     });
 
-    it("should reset password when password reset link is clicked", async function() {
+    it("should show reset password confirmation page when password reset link is clicked", async function() {
         var expectedMailOutputFile = PIWIK_INCLUDE_PATH + '/tmp/Login.resetPassword.mail.json',
             fileContents = require("fs").readFileSync(expectedMailOutputFile),
             mailSent = JSON.parse(fileContents),
@@ -161,6 +161,15 @@ describe("Login", function () {
         resetUrl = resetUrl[0].replace(/<\/p>$/, '');
 
         await page.goto(resetUrl);
+        await page.waitForNetworkIdle();
+
+        expect(await page.screenshot({ fullPage: true })).to.matchImage('password_reset_confirm');
+    });
+
+    it("should reset password when password reset link is clicked", async function() {
+
+        await page.type("#mtmpasswordconfirm", "superUserPass2");
+        await page.click("#login_reset_confirm");
         await page.waitForNetworkIdle();
 
         expect(await page.screenshot({ fullPage: true })).to.matchImage('password_reset_complete');
@@ -189,7 +198,7 @@ describe("Login", function () {
     });
 
     it('should not show login page when ips whitelisted and ip is not matching', async function() {
-        testEnvironment.overrideConfig('General', 'login_whitelist_ip', ['199.199.199.199']);
+        testEnvironment.overrideConfig('General', 'login_allowlist_ip', ['199.199.199.199']);
         testEnvironment.save();
         await page.goto('');
         await page.waitForNetworkIdle();
@@ -203,7 +212,7 @@ describe("Login", function () {
         delete testEnvironment.queryParamOverride;
         delete testEnvironment.bruteForceBlockThisIp;
         delete testEnvironment.bruteForceBlockIps;
-        testEnvironment.overrideConfig('General', 'login_whitelist_ip', []);
+        testEnvironment.overrideConfig('General', 'login_allowlist_ip', []);
         testEnvironment.save();
 
         await page.goto(bruteForceLogUrl);

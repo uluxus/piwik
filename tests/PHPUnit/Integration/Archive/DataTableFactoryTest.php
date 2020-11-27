@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -16,6 +16,7 @@ use Piwik\Db;
 use Piwik\Period;
 use Piwik\Plugins\SegmentEditor\API;
 use Piwik\Segment;
+use Piwik\Site;
 use Piwik\Tests\Framework\Fixture;
 use Piwik\Tests\Framework\Mock\FakeAccess;
 use Piwik\Tests\Framework\TestCase\IntegrationTestCase;
@@ -42,7 +43,7 @@ class DataTableFactoryTest extends IntegrationTestCase
         'nb_visits' => 97
     );
 
-    public function setUp()
+    public function setUp(): void
     {
         parent::setUp();
 
@@ -54,6 +55,20 @@ class DataTableFactoryTest extends IntegrationTestCase
         }
 
         API::getInstance()->add('TEST SEGMENT', 'browserCode==ff');
+    }
+
+    public function test_getSiteIdFromMetadata_no_site()
+    {
+        $siteid = DataTableFactory::getSiteIdFromMetadata(new DataTable());
+        $this->assertNull($siteid);
+    }
+
+    public function test_getSiteIdFromMetadata()
+    {
+        $table = new DataTable();
+        $table->setMetadata('site', new Site($this->site1));
+        $siteid = DataTableFactory::getSiteIdFromMetadata($table);
+        $this->assertEquals($this->site1, $siteid);
     }
 
     public function test_makeMerged_numeric_noIndices_shouldContainDefaultRow_IfNoDataGiven()
@@ -267,12 +282,11 @@ class DataTableFactoryTest extends IntegrationTestCase
         $this->assertRowEquals($row3, $this->site2, $map->getTable($this->date2)->getRowFromId(1));
     }
 
-    /**
-     * @expectedException \Exception
-     * @expectedExceptionMessage supposed to work with non-numeric data types but it is not tested
-     */
     public function test_makeMerged_shouldThrowAnException_IfANonNumericDataTypeIsGiven()
     {
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('supposed to work with non-numeric data types but it is not tested');
+
         $dataType  = 'blob';
         $dataNames = array('nb_visits');
 

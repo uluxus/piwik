@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -30,7 +30,7 @@ class ManagerTest extends IntegrationTestCase
      */
     private $manager;
 
-    public function setUp()
+    public function setUp(): void
     {
         parent::setUp();
         $this->manager = Plugin\Manager::getInstance();
@@ -78,20 +78,46 @@ class ManagerTest extends IntegrationTestCase
         $this->assertEquals(array(), $this->manager->getLoadedPlugins());
     }
 
-    public function test_deactivatePlugin()
+    public function test_activateDeactivatePlugin()
     {
+        $plugin = new Plugin('ExampleTheme');
+
+        $this->assertNull($plugin->getPluginLastActivationTime());
+        $this->assertNull($plugin->getPluginLastDeactivationTime());
+
         $this->assertFalse($this->manager->isPluginActivated('ExampleTheme'));
         $this->manager->activatePlugin('ExampleTheme');
+
+        $lastActivationTime = $plugin->getPluginLastActivationTime();
+        $this->assertNotNull($lastActivationTime);
+
+        $this->assertNull($plugin->getPluginLastDeactivationTime());
+
         $this->assertTrue($this->manager->isPluginActivated('ExampleTheme'));
         $this->manager->deactivatePlugin('ExampleTheme');
         $this->assertFalse($this->manager->isPluginActivated('ExampleTheme'));
+
+        $lastDeactivationTime = $plugin->getPluginLastDeactivationTime();
+        $this->assertNotNull($lastDeactivationTime);
+
+        sleep(1);
+
+        $this->manager->activatePlugin('ExampleTheme');
+
+        $nextLastActivationTime = $plugin->getPluginLastActivationTime();
+        $this->assertGreaterThan($lastActivationTime->getTimestamp(), $nextLastActivationTime->getTimestamp());
+
+        $this->manager->deactivatePlugin('ExampleTheme');
+
+        $nextLastDeactivationTime = $plugin->getPluginLastDeactivationTime();
+        $this->assertGreaterThan($lastDeactivationTime->getTimestamp(), $nextLastDeactivationTime->getTimestamp());
     }
 
     /** @see Issue https://github.com/piwik/piwik/issues/8422 */
     public function test_ListenNotToControllerMethodEventsThatDoesNotExists()
     {
         foreach ($this->manager->getLoadedPlugins() as $plugin) {
-            $hooks = $plugin->getListHooksRegistered();
+            $hooks = $plugin->registerEvents();
             foreach ($hooks as $hook => $callback) {
                 if (0 === strpos($hook, 'Controller.')) {
                     list($controller, $module, $action) = explode('.', $hook);
@@ -147,8 +173,8 @@ class ManagerTest extends IntegrationTestCase
 
     private function assertOnlyTrackerPluginsAreLoaded($expectedPluginNamesLoaded)
     {
-        // should currently load between 10 and 30 plugins
-        $this->assertLessThan(30, count($this->manager->getLoadedPlugins()));
+        // should currently load between 10 and 35 plugins
+        $this->assertLessThan(35, count($this->manager->getLoadedPlugins()));
         $this->assertGreaterThan(10, count($this->manager->getLoadedPlugins()));
 
         // we need to make sure it actually only loaded the correct ones

@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -10,10 +10,11 @@ namespace Piwik;
 
 use Exception;
 use Piwik\Access\CapabilitiesProvider;
+use Piwik\API\Request;
 use Piwik\Access\RolesProvider;
 use Piwik\Container\StaticContainer;
-use Piwik\Exception\InvalidRequestParameterException;
 use Piwik\Plugins\SitesManager\API as SitesManagerApi;
+use Piwik\Session\SessionAuth;
 
 /**
  * Singleton that manages user access to Piwik resources.
@@ -118,7 +119,7 @@ class Access
             'view'      => array(),
             'write'     => array(),
             'admin'     => array(),
-            'superuser' => array()
+            'superuser' => array(),
         );
     }
 
@@ -154,8 +155,37 @@ class Access
             return false;
         }
 
+        $result = null;
+
+        $forceApiSessionPost = Common::getRequestVar('force_api_session', 0, 'int', $_POST);
+        $forceApiSessionGet = Common::getRequestVar('force_api_session', 0, 'int', $_GET);
+        $isApiRequest = Piwik::getModule() === 'API' && (Piwik::getAction() === 'index' || !Piwik::getAction());
+        $apiMethod = Request::getMethodIfApiRequest(null);
+        $isGetApiRequest = 1 === substr_count($apiMethod, '.') && strpos($apiMethod, '.get') > 0;
+
+        if (($forceApiSessionPost && $isApiRequest) || ($forceApiSessionGet && $isApiRequest && $isGetApiRequest)) {
+            $request = ($forceApiSessionGet && $isApiRequest && $isGetApiRequest) ? $_GET : $_POST;
+            $tokenAuth = Common::getRequestVar('token_auth', '', 'string', $request);
+            Session::start();
+            $auth = StaticContainer::get(SessionAuth::class);
+            $auth->setTokenAuth($tokenAuth);
+            $result = $auth->authenticate();
+            if (!$result->wasAuthenticationSuccessful()) {
+                /**
+                 * Ensures brute force logic to be executed
+                 * @ignore
+                 * @internal
+                 */
+                Piwik::postEvent('API.Request.authenticate.failed');
+            }
+            Session::close();
+            // if not successful, we will fallback to regular auth
+        }
+
         // access = array ( idsite => accessIdSite, idsite2 => accessIdSite2)
-        $result = $this->auth->authenticate();
+        if (!$result || !$result->wasAuthenticationSuccessful()) {
+            $result = $this->auth->authenticate();
+        }
 
         if (!$result->wasAuthenticationSuccessful()) {
             return false;
@@ -630,6 +660,10 @@ class Access
     {
         $isSuperUser = self::getInstance()->hasSuperUserAccess();
 
+        if ($isSuperUser) {
+            return $function();
+        }
+
         $access = self::getInstance();
         $login = $access->getLogin();
         $shouldResetLogin = empty($login); // make sure to reset login if a login was set by "makeSureLoginNameIsSet()"
@@ -637,7 +671,7 @@ class Access
 
         try {
             $result = $function();
-        } catch (Exception $ex) {
+        } catch (\Throwable $ex) {
             $access->setSuperUserAccess($isSuperUser);
             if ($shouldResetLogin) {
                 $access->login = null;
@@ -703,12 +737,13 @@ class Access
     /**
      * Throw a NoAccessException with the given message, or a more generic 'You need to log in' message if the
      * user is not currently logged in (e.g. if session has expired).
+     *
      * @param $message
      * @throws NoAccessException
      */
     private function throwNoAccessException($message)
     {
-        if (Piwik::isUserIsAnonymous()) {
+        if (Piwik::isUserIsAnonymous() && !Request::isRootRequestApiRequest()) {
             $message = Piwik::translate('General_YouMustBeLoggedIn');
         }
         // Try to detect whether user was previously logged in so that we can display a different message
@@ -722,13 +757,14 @@ class Access
 
         throw new NoAccessException($message);
     }
-}
 
-/**
- * Exception thrown when a user doesn't have sufficient access to a resource.
- *
- * @api
- */
-class NoAccessException extends InvalidRequestParameterException
-{
+    /**
+     * Returns true if the current user is logged in or not.
+     *
+     * @return bool
+     */
+    public function isUserLoggedIn()
+    {
+        return !empty($this->login);
+    }
 }

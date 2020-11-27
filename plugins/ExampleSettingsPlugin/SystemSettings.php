@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -91,7 +91,7 @@ class SystemSettings extends \Piwik\Settings\Plugin\SystemSettings
             $field->uiControl = FieldConfig::UI_CONTROL_PASSWORD;
             $field->description = 'Password for the 3rd API where we fetch the value';
             $field->transform = function ($value) {
-                return sha1($value . 'salt');
+                return password_hash($value, PASSWORD_DEFAULT);
             };
         });
     }

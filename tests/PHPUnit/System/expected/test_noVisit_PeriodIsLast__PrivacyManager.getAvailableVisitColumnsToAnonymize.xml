@@ -13,6 +13,10 @@
 		<default_value />
 	</row>
 	<row>
+		<column_name>config_client_type</column_name>
+		<default_value />
+	</row>
+	<row>
 		<column_name>config_cookie</column_name>
 		<default_value />
 	</row>
@@ -29,15 +33,7 @@
 		<default_value />
 	</row>
 	<row>
-		<column_name>config_director</column_name>
-		<default_value />
-	</row>
-	<row>
 		<column_name>config_flash</column_name>
-		<default_value />
-	</row>
-	<row>
-		<column_name>config_gears</column_name>
 		<default_value />
 	</row>
 	<row>
@@ -165,6 +161,10 @@
 		<default_value />
 	</row>
 	<row>
+		<column_name>profilable</column_name>
+		<default_value />
+	</row>
+	<row>
 		<column_name>referer_keyword</column_name>
 		<default_value />
 	</row>
@@ -225,16 +225,8 @@
 		<default_value />
 	</row>
 	<row>
-		<column_name>visitor_days_since_first</column_name>
-		<default_value />
-	</row>
-	<row>
-		<column_name>visitor_days_since_last</column_name>
-		<default_value />
-	</row>
-	<row>
-		<column_name>visitor_days_since_order</column_name>
-		<default_value />
+		<column_name>visitor_count_visits</column_name>
+		<default_value>0</default_value>
 	</row>
 	<row>
 		<column_name>visitor_localtime</column_name>
@@ -242,6 +234,18 @@
 	</row>
 	<row>
 		<column_name>visitor_returning</column_name>
+		<default_value />
+	</row>
+	<row>
+		<column_name>visitor_seconds_since_first</column_name>
+		<default_value />
+	</row>
+	<row>
+		<column_name>visitor_seconds_since_last</column_name>
+		<default_value />
+	</row>
+	<row>
+		<column_name>visitor_seconds_since_order</column_name>
 		<default_value />
 	</row>
 </result>

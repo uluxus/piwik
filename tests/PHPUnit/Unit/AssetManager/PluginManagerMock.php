@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -31,6 +31,12 @@ class PluginManagerMock extends Manager
     public function setPlugins($plugins)
     {
         $this->plugins = $plugins;
+    }
+
+    public function isPluginLoaded($name)
+    {
+        $plugin = $this->getLoadedPlugin($name);
+        return !empty($plugin);
     }
 
     public function getLoadedPlugin($name)

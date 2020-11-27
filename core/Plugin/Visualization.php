@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -27,6 +27,7 @@ use Piwik\Period;
 use Piwik\Piwik;
 use Piwik\Plugins\API\API as ApiApi;
 use Piwik\Plugins\API\Filter\DataComparisonFilter;
+use Piwik\Plugins\Monolog\Processor\ExceptionToTextProcessor;
 use Piwik\Plugins\PrivacyManager\PrivacyManager;
 use Piwik\SettingsPiwik;
 use Piwik\View;
@@ -205,10 +206,7 @@ class Visualization extends ViewDataTable
                 'ignoreInScreenWriter' => true,
             ]);
 
-            $message = $e->getMessage();
-            if (\Piwik_ShouldPrintBackTraceWithMessage()) {
-                $message .= "\n" . $e->getTraceAsString();
-            }
+            $message = ExceptionToTextProcessor::getMessageAndWholeBacktrace($e);
 
             $loadingError = array('message' => $message);
         }
@@ -295,8 +293,17 @@ class Visualization extends ViewDataTable
     {
         $hasData = false;
         $dataTable->filter(function (DataTable $table) use (&$hasData) {
-            if ($table->getRowsCount() > 0) {
-                $hasData = true;
+            if ($hasData || $table->getRowsCount() == 0) {
+                return;
+            }
+
+            foreach ($table->getRows() as $row) {
+                foreach ($row->getColumns() as $column => $value) {
+                    if ($value != 0 && $value !== '0%') {
+                        $hasData = true;
+                        return;
+                    }
+                }
             }
         });
         return $hasData;
@@ -323,8 +330,15 @@ class Visualization extends ViewDataTable
 
         PluginManager::getInstance()->checkIsPluginActivated($module);
 
+        $proxyRequestParams = $request;
+        if ($this->isComparing()) {
+            $proxyRequestParams = array_merge($proxyRequestParams, [
+                'disable_root_datatable_post_processor' => 1,
+            ]);
+        }
+
         $class     = ApiRequest::getClassNameAPI($module);
-        $dataTable = Proxy::getInstance()->call($class, $method, $request);
+        $dataTable = Proxy::getInstance()->call($class, $method, $proxyRequestParams);
 
         $response = new ResponseBuilder($format = 'original', $request);
         $response->disableSendHeader();
@@ -437,10 +451,6 @@ class Visualization extends ViewDataTable
             $this->config->setDefaultColumnsToDisplay($columns, $hasNbVisits, $hasNbUniqVisitors);
         }
 
-        if (!empty($this->dataTable)) {
-            $this->removeEmptyColumnsFromDisplay();
-        }
-
         if (empty($this->requestConfig->filter_sort_column)) {
             $this->requestConfig->setDefaultSort($this->config->columns_to_display, $hasNbUniqVisitors, $columns);
         }
@@ -511,12 +521,15 @@ class Visualization extends ViewDataTable
         $postProcessor->setCallbackAfterGenericFilters(function (DataTable\DataTableInterface $dataTable) use ($self) {
 
             $self->setDataTable($dataTable);
-
             $self->afterGenericFiltersAreAppliedToLoadedDataTable();
 
             // queue other filters so they can be applied later if queued filters are disabled
             foreach ($self->config->getPresentationFilters() as $filter) {
                 $dataTable->queueFilter($filter[0], $filter[1]);
+            }
+
+            if (!empty($this->dataTable)) {
+                $self->removeEmptyColumnsFromDisplay();
             }
         });
 

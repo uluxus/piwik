@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -66,6 +66,19 @@ $environment = new \Piwik\Application\Environment(null, array(
     'Piwik\Application\Kernel\EnvironmentValidator' => $validator
 ));
 $environment->init();
+
+if (!\Piwik\Tracker\IgnoreCookie::isIgnoreCookieFound()) {
+    
+    $request = new \Piwik\Tracker\Request(array());
+    
+    if ($request->shouldUseThirdPartyCookie()) {
+        $visitorId = $request->getVisitorIdForThirdPartyCookie();
+        if (!$visitorId) {
+            $visitorId = \Piwik\Common::hex2bin(\Piwik\Tracker\Visit::generateUniqueVisitorId());
+        }
+        $request->setThirdPartyCookie($visitorId);
+    }
+}
 
 ProxyHttp::serverStaticFile($file, "application/javascript; charset=UTF-8", $daysExpireFarFuture, $byteStart, $byteEnd);
 

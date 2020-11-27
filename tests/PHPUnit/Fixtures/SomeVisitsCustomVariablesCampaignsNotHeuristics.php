@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -11,7 +11,7 @@ use Piwik\Date;
 use Piwik\Plugins\Goals\API;
 use Piwik\Tests\Framework\Fixture;
 use Piwik\Tests\Framework\TestingEnvironmentVariables;
-use PiwikTracker;
+use MatomoTracker;
 
 /**
  * Add one site and track many visits with custom variables & campaign IDs and
@@ -22,16 +22,15 @@ class SomeVisitsCustomVariablesCampaignsNotHeuristics extends Fixture
     public $dateTime = '2009-01-04 00:11:42';
     public $idSite = 1;
     public $idGoal = 1;
-    private $tmpHost = '';
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->setPiwikEnvironmentOverrides();
         $this->setUpWebsitesAndGoals();
         $this->trackVisits();
     }
 
-    public function tearDown()
+    public function tearDown(): void
     {
     }
 
@@ -211,7 +210,7 @@ class SomeVisitsCustomVariablesCampaignsNotHeuristics extends Fixture
     private function getFirstPartyCookieDomainHash()
     {
         $host = \Piwik\Url::getHost();
-        $cookiePath = PiwikTracker::DEFAULT_COOKIE_PATH;
+        $cookiePath = MatomoTracker::DEFAULT_COOKIE_PATH;
         return substr(sha1( $host . $cookiePath), 0, 4);
     }
 
@@ -219,7 +218,7 @@ class SomeVisitsCustomVariablesCampaignsNotHeuristics extends Fixture
      * Test setting/getting the first party cookie via the PHP Tracking Client
      * @param $t
      */
-    private function testFirstPartyCookies(PiwikTracker $t)
+    private function testFirstPartyCookies(MatomoTracker $t)
     {
         $domainHash = $this->getFirstPartyCookieDomainHash();
         $idCookieName = '_pk_id_1_' . $domainHash;
@@ -228,12 +227,12 @@ class SomeVisitsCustomVariablesCampaignsNotHeuristics extends Fixture
 
         $viewts = '1302307497';
         $uuid = 'ca0afe7b6b692ff5';
-        $_COOKIE[$idCookieName] = $uuid . '.1302307497.1.' . $viewts . '.1302307497';
+        $_COOKIE[$idCookieName] = $uuid . '.' . $viewts;
         $_COOKIE[$refCookieName] = '["YEAH","RIGHT!",1302307497,"http://referrer.example.org/page/sub?query=test&test2=test3"]';
         $_COOKIE[$customVarCookieName] = '{"1":["VAR 1 set, var 2 not set","yes"],"3":["var 3 set","yes!!!!"]}';
 
         // test loading 'id' cookie
-        self::assertContains("_viewts=" . $viewts, $t->getUrlTrackPageView());
+        self::assertStringContainsString("_idts=" . $viewts, $t->getUrlTrackPageView());
         self::assertEquals($uuid, $t->getVisitorId());
         self::assertEquals($t->getAttributionInfo(), $_COOKIE[$refCookieName]);
         self::assertEquals(array("VAR 1 set, var 2 not set", "yes"), $t->getCustomVariable(1));

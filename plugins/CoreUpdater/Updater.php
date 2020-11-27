@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -10,11 +10,17 @@ namespace Piwik\Plugins\CoreUpdater;
 
 use Exception;
 use Piwik\ArchiveProcessor\Rules;
+use Piwik\Cache as PiwikCache;
+use Piwik\CliMulti;
+use Piwik\Common;
 use Piwik\Container\StaticContainer;
+use Piwik\Context;
 use Piwik\Filechecks;
 use Piwik\Filesystem;
+use Piwik\FrontController;
 use Piwik\Http;
 use Piwik\Option;
+use Piwik\Piwik;
 use Piwik\Plugin\Manager as PluginManager;
 use Piwik\Plugin\ReleaseChannels;
 use Piwik\Plugins\CorePluginsAdmin\PluginInstaller;
@@ -114,21 +120,6 @@ class Updater
             $this->verifyDecompressedArchive($extractedArchiveDirectory);
             $messages[] = $this->translator->translate('CoreUpdater_VerifyingUnpackedFiles');
 
-            if (Marketplace::isMarketplaceEnabled()) {
-                // we need to load the marketplace already here, otherwise it will use the new, updated file in Piwik 3
-
-                // we also need to make sure to create a new instance here as otherwise we would change the "global"
-                // environment, but we only want to change piwik version temporarily for this task here
-                $environment = StaticContainer::getContainer()->make('Piwik\Plugins\Marketplace\Environment');
-                $environment->setPiwikVersion($newVersion);
-                /** @var \Piwik\Plugins\Marketplace\Api\Client $marketplaceClient */
-                $marketplaceClient = StaticContainer::getContainer()->make('Piwik\Plugins\Marketplace\Api\Client', array(
-                    'environment' => $environment
-                ));
-                require_once PIWIK_DOCUMENT_ROOT . '/plugins/CorePluginsAdmin/PluginInstaller.php';
-                require_once PIWIK_DOCUMENT_ROOT . '/plugins/Marketplace/Api/Exception.php';
-            }
-
             $this->installNewFiles($extractedArchiveDirectory);
             $messages[] = $this->translator->translate('CoreUpdater_InstallingTheLatestVersion');
 
@@ -138,29 +129,36 @@ class Updater
             throw new UpdaterException($e, $messages);
         }
 
-        try {
+        $validFor10Minutes = time() + (60 * 10);
+        $nonce = Common::generateUniqId();
+        Option::set('NonceOneClickUpdatePartTwo', json_encode(['nonce' => $nonce, 'ttl' => $validFor10Minutes]));
 
-            if (Marketplace::isMarketplaceEnabled() && !empty($marketplaceClient)) {
-                $messages[] = $this->translator->translate('CoreUpdater_CheckingForPluginUpdates');
-                $pluginManager = PluginManager::getInstance();
-                $pluginManager->loadAllPluginsAndGetTheirInfo();
-                $loadedPlugins = $pluginManager->getLoadedPlugins();
+        $cliMulti = new CliMulti();
+        $responses = $cliMulti->request(['?module=CoreUpdater&action=oneClickUpdatePartTwo&nonce=' . $nonce]);
 
-                $marketplaceClient->clearAllCacheEntries();
-                $pluginsWithUpdate = $marketplaceClient->checkUpdates($loadedPlugins);
-
-                foreach ($pluginsWithUpdate as $pluginWithUpdate) {
-                    $pluginName = $pluginWithUpdate['name'];
-                    $messages[] = $this->translator->translate('CoreUpdater_UpdatingPluginXToVersionY',
-                                                               array($pluginName, $pluginWithUpdate['version']));
-                    $pluginInstaller = new PluginInstaller($marketplaceClient);
-                    $pluginInstaller->installOrUpdatePluginFromMarketplace($pluginName);
+        if (!empty($responses)) {
+            $responseCliMulti = array_shift($responses);
+            $responseCliMulti = @json_decode($responseCliMulti, $assoc = true);
+            if (is_array($responseCliMulti)) {
+                // we expect a json encoded array response from oneClickUpdatePartTwo. Otherwise something went wrong.
+                $messages = array_merge($messages, $responseCliMulti);
+            } else {
+                // there was likely an error eg such as an invalid ssl certificate... let's try executing it directly
+                // in case this works. For explample $response is in this case not an array but a string because the "communcation"
+                // with the controller went wrong: "Got invalid response from API request: https://ABC/?module=CoreUpdater&action=oneClickUpdatePartTwo&nonce=ABC. Response was \'curl_exec: SSL certificate problem: unable to get local issuer certificate. Hostname requested was: ABC"
+                try {
+                    $response = $this->oneClickUpdatePartTwo($newVersion);
+                    if (!empty($response) && is_array($response)) {
+                        $messages = array_merge($messages, $response);
+                    }
+                } catch (Exception $e) {
+                    // ignore any error should this fail too. this might be the case eg if
+                    // the user upgrades from one major version to another major version
+                    if (is_string($responseCliMulti)) {
+                        $messages[] = $responseCliMulti; // show why the original request failed eg invalid ssl certificate
+                    }
                 }
             }
-        } catch (MarketplaceApi\Exception $e) {
-            // there is a problem with the connection to the server, ignore for now
-        } catch (Exception $e) {
-            throw new UpdaterException($e, $messages);
         }
 
         try {
@@ -168,6 +166,54 @@ class Updater
             if (!empty($disabledPluginNames)) {
                 $messages[] = $this->translator->translate('CoreUpdater_DisablingIncompatiblePlugins', implode(', ', $disabledPluginNames));
             }
+        } catch (Exception $e) {
+            throw new UpdaterException($e, $messages);
+        }
+
+        return $messages;
+    }
+
+    public function oneClickUpdatePartTwo($newVersion = null)
+    {
+        $messages = [];
+
+        if (!Marketplace::isMarketplaceEnabled()) {
+            $messages[] = 'Marketplace is disabled. Not updating any plugins.';
+            // prevent error Entry "Piwik\Plugins\Marketplace\Api\Client" cannot be resolved: Entry "Piwik\Plugins\Marketplace\Api\Service" cannot be resolved
+            return $messages;
+        }
+
+        if (!isset($newVersion)) {
+            $newVersion = Version::VERSION;
+        }
+        
+        // we also need to make sure to create a new instance here as otherwise we would change the "global"
+        // environment, but we only want to change piwik version temporarily for this task here
+        $environment = StaticContainer::getContainer()->make('Piwik\Plugins\Marketplace\Environment');
+        $environment->setPiwikVersion($newVersion);
+        /** @var \Piwik\Plugins\Marketplace\Api\Client $marketplaceClient */
+        $marketplaceClient = StaticContainer::getContainer()->make('Piwik\Plugins\Marketplace\Api\Client', array(
+            'environment' => $environment
+        ));
+
+        try {
+            $messages[] = $this->translator->translate('CoreUpdater_CheckingForPluginUpdates');
+            $pluginManager = PluginManager::getInstance();
+            $pluginManager->loadAllPluginsAndGetTheirInfo();
+            $loadedPlugins = $pluginManager->getLoadedPlugins();
+
+            $marketplaceClient->clearAllCacheEntries();
+            $pluginsWithUpdate = $marketplaceClient->checkUpdates($loadedPlugins);
+
+            foreach ($pluginsWithUpdate as $pluginWithUpdate) {
+                $pluginName = $pluginWithUpdate['name'];
+                $messages[] = $this->translator->translate('CoreUpdater_UpdatingPluginXToVersionY',
+                    array($pluginName, $pluginWithUpdate['version']));
+                $pluginInstaller = new PluginInstaller($marketplaceClient);
+                $pluginInstaller->installOrUpdatePluginFromMarketplace($pluginName);
+            }
+        } catch (MarketplaceApi\Exception $e) {
+            // there is a problem with the connection to the server, ignore for now
         } catch (Exception $e) {
             throw new UpdaterException($e, $messages);
         }
@@ -249,6 +295,12 @@ class Updater
 
     private function disableIncompatiblePlugins($version)
     {
+        $pluginManager = PluginManager::getInstance();
+        $plugins = $pluginManager->getLoadedPlugins();
+        foreach ($plugins as $plugin) {
+            $plugin->reloadPluginInformation();
+        }
+        
         $incompatiblePlugins = $this->getIncompatiblePlugins($version);
         $disabledPluginNames = array();
 

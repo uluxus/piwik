@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,6 +8,7 @@
 
 namespace Piwik\Plugins\SegmentEditor\tests\Integration;
 
+use Piwik\ArchiveProcessor\Rules;
 use Piwik\Plugins\SegmentEditor\API;
 use Piwik\Plugins\SegmentEditor\SegmentQueryDecorator;
 use Piwik\Segment;
@@ -25,7 +26,7 @@ class SegmentQueryDecoratorTest extends IntegrationTestCase
      */
     private $segmentQueryDecorator;
 
-    public function setUp()
+    public function setUp(): void
     {
         parent::setUp();
 
@@ -35,6 +36,8 @@ class SegmentQueryDecoratorTest extends IntegrationTestCase
 
         $this->segmentQueryDecorator = self::$fixture->piwikEnvironment->getContainer()->get(
             'Piwik\Plugins\SegmentEditor\SegmentQueryDecorator');
+
+        Rules::setBrowserTriggerArchiving(false);
 
         /** @var API $segmentEditorApi */
         $segmentEditorApi = self::$fixture->piwikEnvironment->getContainer()->get(
@@ -47,6 +50,8 @@ class SegmentQueryDecoratorTest extends IntegrationTestCase
         // test that segments w/ auto archive == false are included
         $segmentEditorApi->add('segment 5', 'visitCount<2', 3, $autoArchive = false);
         $segmentEditorApi->add('segment 6', 'countryCode!=fr', 3, $autoArchive = false);
+
+        Rules::setBrowserTriggerArchiving(true);
     }
 
     /**

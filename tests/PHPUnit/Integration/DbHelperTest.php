@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -8,6 +8,7 @@
 
 namespace Piwik\Tests\Integration;
 
+use Piwik\Common;
 use Piwik\Db;
 use Piwik\DbHelper;
 use Piwik\Option;
@@ -16,12 +17,19 @@ use Piwik\Version;
 
 class DbHelperTest extends IntegrationTestCase
 {
-    public function setUp()
+    public function setUp(): void
     {
         parent::setUp();
 
         DbHelper::dropDatabase('newdb; create database anotherdb;');
         DbHelper::dropDatabase('testdb');
+    }
+
+    public function test_tableExists()
+    {
+        $this->assertFalse(DbHelper::tableExists('foobar'));
+        $this->assertTrue(DbHelper::tableExists(Common::prefixTable('user_token_auth')));
+        $this->assertFalse(DbHelper::tableExists(Common::prefixTable('user_t%oke%n_auth')));
     }
 
     public function test_getInstallVersion_isCurrentVersion()
@@ -93,14 +101,14 @@ class DbHelperTest extends IntegrationTestCase
     {
         $dbs = Db::fetchAll("SHOW DATABASES");
         $dbs = array_column($dbs, 'Database');
-        $this->assertContains($this->cleanName($dbName), $dbs);
+        self::assertTrue(in_array($this->cleanName($dbName), $dbs));
     }
 
     private function assertDbNotExists($dbName)
     {
         $dbs = Db::fetchAll("SHOW DATABASES");
         $dbs = array_column($dbs, 'Database');
-        $this->assertNotContains($this->cleanName($dbName), $dbs);
+        self::assertTrue(!in_array($this->cleanName($dbName), $dbs));
     }
 
     private function cleanName($dbName)

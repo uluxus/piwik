@@ -313,11 +313,38 @@ class Zend_Session extends Zend_Session_Abstract
         } else {
             if (!self::$_unitTestEnabled) {
                 session_regenerate_id(true);
+                self::rewriteSessionCookieWithSameSiteDirective();
             }
             self::$_regenerateIdState = 1;
         }
     }
 
+    /**
+     * Check if there is a Set-Cookie header present - if so, overwrite it with
+     * a similar header which also includes a SameSite directive. This workaround
+     * is needed because the SameSite property on the session cookie is not supported
+     * by PHP until 7.3.
+     */
+    private static function rewriteSessionCookieWithSameSiteDirective()
+    {
+        $headers = headers_list();
+        $cookieHeader = '';
+        foreach ($headers as $header) {
+            if (strpos($header, 'Set-Cookie: ' . \Piwik\Session::SESSION_NAME) === 0) {
+                $cookieHeader = $header;
+                break;
+            }
+        }
+
+        if (! $cookieHeader) {
+            return;
+        }
+
+        if (stripos($cookieHeader, 'SameSite') === false) {
+            $cookieHeader .= '; SameSite=' . \Piwik\Session::getSameSiteCookieValue();
+            header($cookieHeader);
+        }
+    }
 
     /**
      * rememberMe() - Write a persistent cookie that expires after a number of seconds in the future. If no number of
@@ -451,13 +478,6 @@ class Zend_Session extends Zend_Session_Abstract
                . " output started in {$filename}/{$linenum}");
         }
 
-        // See http://www.php.net/manual/en/ref.session.php for explanation
-        if (!self::$_unitTestEnabled && defined('SID')) {
-            /** @see Zend_Session_Exception */
-            // require_once 'Zend/Session/Exception.php';
-            throw new Zend_Session_Exception('session has already been started by session.auto-start or session_start()');
-        }
-
         /**
          * Hack to throw exceptions on start instead of php errors
          * @see http://framework.zend.com/issues/browse/ZF-1325
@@ -496,6 +516,8 @@ class Zend_Session extends Zend_Session_Abstract
         self::$_sessionStarted = true;
         if (self::$_regenerateIdState === -1) {
             self::regenerateId();
+        } else {
+            self::rewriteSessionCookieWithSameSiteDirective();
         }
 
         if (isset($_SESSION['data']) && is_string($_SESSION['data'])) {
@@ -763,14 +785,16 @@ class Zend_Session extends Zend_Session_Abstract
         if (isset($_COOKIE[session_name()])) {
             $cookie_params = session_get_cookie_params();
 
-            setcookie(
+            \Piwik\Session::writeCookie(
                 session_name(),
                 false,
                 315554400, // strtotime('1980-01-01'),
                 $cookie_params['path'],
                 $cookie_params['domain'],
-                $cookie_params['secure']
-                );
+                $cookie_params['secure'],
+                false,
+                \Piwik\Session::getSameSiteCookieValue()
+            );
         }
     }
 

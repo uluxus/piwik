@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -10,6 +10,7 @@ namespace Piwik\Plugins\PrivacyManager\tests;
 
 use Piwik\Option;
 use Piwik\Plugins\PrivacyManager\Config as PrivacyManagerConfig;
+use Piwik\Plugins\PrivacyManager\ReferrerAnonymizer;
 use Piwik\Tests\Framework\TestCase\IntegrationTestCase;
 
 /**
@@ -22,7 +23,7 @@ class PrivacyManagerConfigTest extends IntegrationTestCase
      */
     private $config;
 
-    public function setUp()
+    public function setUp(): void
     {
         parent::setUp();
 
@@ -91,6 +92,15 @@ class PrivacyManagerConfigTest extends IntegrationTestCase
         $this->assertTrue($this->config->anonymizeUserId);
     }
 
+    public function test_anonymizeReferrer()
+    {
+        $this->assertSame('', $this->config->anonymizeReferrer);
+
+        $this->config->anonymizeReferrer = ReferrerAnonymizer::EXCLUDE_PATH;
+
+        $this->assertSame(ReferrerAnonymizer::EXCLUDE_PATH, $this->config->anonymizeReferrer);
+    }
+
     public function test_setTrackerCacheContent()
     {
         $content = $this->config->setTrackerCacheGeneral(array('existingEntry' => 'test'));
@@ -102,7 +112,9 @@ class PrivacyManagerConfigTest extends IntegrationTestCase
             'PrivacyManager.doNotTrackEnabled'   => true,
             'PrivacyManager.anonymizeUserId'     => false,
             'PrivacyManager.anonymizeOrderId'    => false,
+            'PrivacyManager.anonymizeReferrer'   => '',
             'PrivacyManager.useAnonymizedIpForVisitEnrichment' => false,
+            'PrivacyManager.forceCookielessTracking' => false,
         );
 
         $this->assertEquals($expected, $content);

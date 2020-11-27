@@ -1,6 +1,6 @@
 <?php
 /**
- * Piwik - free/libre analytics platform
+ * Matomo - free/libre analytics platform
  *
  * @link https://matomo.org
  * @license http://www.gnu.org/licenses/gpl-3.0.html GPL v3 or later
@@ -14,7 +14,9 @@ use Piwik\Common;
 use Piwik\Config;
 use Piwik\Container\StaticContainer;
 use Piwik\Piwik;
+use Piwik\Plugin\Manager;
 use Piwik\Plugins\API\API as APIMetadata;
+use Piwik\Plugins\Live\Live;
 use Piwik\Plugins\UsersManager\API AS UsersManagerAPI;
 use Piwik\View\UIControl;
 use Piwik\Plugins\SegmentEditor\API as SegmentEditorAPI;
@@ -65,7 +67,7 @@ class SegmentSelectorControl extends UIControl
         $this->nameOfCurrentSegment = '';
         $this->isSegmentNotAppliedBecauseBrowserArchivingIsDisabled = 0;
 
-        $this->availableSegments = API::getInstance()->getAll($this->idSite);
+        $this->availableSegments = Request::processRequest("SegmentEditor.getAll", ['idSite' => $this->idSite], $defaultRequest = []);
         foreach ($this->availableSegments as &$savedSegment) {
             $savedSegment['name'] = Common::sanitizeInputValue($savedSegment['name']);
 
@@ -80,7 +82,13 @@ class SegmentSelectorControl extends UIControl
         $this->isUserAnonymous = Piwik::isUserIsAnonymous();
         $this->segmentTranslations = $this->getTranslations();
         $this->segmentProcessedOnRequest = Rules::isBrowserArchivingAvailableForSegments();
-        $this->hideSegmentDefinitionChangeMessage = UsersManagerAPI::getInstance()->getUserPreference(Piwik::getCurrentUserLogin(), 'hideSegmentDefinitionChangeMessage');
+        $this->hideSegmentDefinitionChangeMessage = UsersManagerAPI::getInstance()->getUserPreference(
+            'hideSegmentDefinitionChangeMessage',
+            Piwik::getCurrentUserLogin()
+        );
+        $this->isBrowserArchivingEnabled = Rules::isBrowserTriggerEnabled();
+
+        $this->isVisitorLogEnabled = Manager::getInstance()->isPluginActivated('Live') && Live::isVisitorLogEnabled($this->idSite);
     }
 
     public function getClientSideProperties()
